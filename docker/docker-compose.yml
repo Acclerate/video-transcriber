@@ -1,0 +1,136 @@
+# Video Transcriber Docker Compose 配置
+
+version: '3.8'
+
+services:
+  # 主应用服务
+  video-transcriber:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: video-transcriber
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      # 挂载配置文件
+      - ../logs:/app/logs
+      - ../temp:/app/temp
+      - ../models_cache:/app/models_cache
+      # 挂载环境配置
+      - ../.env:/app/.env:ro
+    environment:
+      # 基础配置
+      - HOST=0.0.0.0
+      - PORT=8000
+      - DEBUG=false
+      
+      # 日志配置
+      - LOG_LEVEL=INFO
+      - LOG_FILE=/app/logs/app.log
+      - LOG_TO_CONSOLE=true
+      
+      # Whisper配置
+      - DEFAULT_MODEL=small
+      - ENABLE_GPU=true
+      - MODEL_CACHE_DIR=/app/models_cache
+      
+      # 文件配置
+      - TEMP_DIR=/app/temp
+      - MAX_FILE_SIZE=100
+      - CLEANUP_AFTER=3600
+      
+      # API配置
+      - CORS_ORIGINS=*
+      - RATE_LIMIT_PER_MINUTE=60
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - transcriber-network
+
+  # Nginx反向代理 (可选)
+  nginx:
+    image: nginx:alpine
+    container_name: video-transcriber-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - video-transcriber
+    networks:
+      - transcriber-network
+
+  # Redis缓存 (可选)
+  redis:
+    image: redis:alpine
+    container_name: video-transcriber-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+    networks:
+      - transcriber-network
+
+networks:
+  transcriber-network:
+    driver: bridge
+
+volumes:
+  redis-data:
+    driver: local
+
+# 开发环境覆盖配置
+# 使用: docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
+# ---
+# docker-compose.dev.yml
+# version: '3.8'
+
+# services:
+#   video-transcriber:
+#     build:
+#       target: development
+#     environment:
+#       - DEBUG=true
+#       - LOG_LEVEL=DEBUG
+#       - RELOAD=true
+#     volumes:
+#       # 开发时挂载源代码
+#       - ..:/app
+#     command: ["python", "-m", "uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+
+# 生产环境覆盖配置
+# 使用: docker-compose -f docker-compose.yml -f docker-compose.prod.yml up
+# ---
+# # docker-compose.prod.yml
+# version: '3.8'
+
+# services:
+#   video-transcriber:
+#     image: video-transcriber:latest
+#     deploy:
+#       replicas: 2
+#       resources:
+#         limits:
+#           cpus: '2.0'
+#           memory: 4G
+#         reservations:
+#           cpus: '1.0'
+#           memory: 2G
+#     environment:
+#       - DEBUG=false
+#       - LOG_LEVEL=INFO
+#       - ENABLE_GPU=true
+
+#   nginx:
+#     volumes:
+#       - ./nginx.prod.conf:/etc/nginx/nginx.conf:ro

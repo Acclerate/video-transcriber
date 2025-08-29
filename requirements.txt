@@ -1,0 +1,61 @@
+# Video Transcriber Dependencies
+# Core dependencies for video transcription service
+
+# Web Framework
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+
+# Video Processing
+yt-dlp==2023.11.16
+pydub==0.25.1
+
+# Speech Recognition
+openai-whisper==20231117
+torch>=1.13.0
+torchaudio>=0.13.0
+
+# Audio Processing
+librosa==0.10.1
+soundfile==0.12.1
+
+# Async Support
+aiofiles==23.2.0
+asyncio-throttle==1.0.2
+
+# Utility Libraries
+loguru==0.7.2
+click==8.1.7
+rich==13.7.0
+tqdm==4.66.1
+
+# Data Processing
+pydantic==2.5.2
+pydantic-settings==2.1.0
+
+# HTTP Clients
+httpx==0.25.2
+requests==2.31.0
+
+# Testing
+pytest==7.4.3
+pytest-asyncio==0.21.1
+pytest-mock==3.12.0
+pytest-cov==4.1.0
+
+# Development Tools
+black==23.11.0
+isort==5.12.0
+flake8==6.1.0
+
+# Type Checking
+mypy==1.7.1
+
+# Security
+python-multipart==0.0.6
+python-jose[cryptography]==3.3.0
+
+# Environment Configuration
+python-dotenv==1.0.0
+
+# Rate Limiting
+slowapi==0.1.9

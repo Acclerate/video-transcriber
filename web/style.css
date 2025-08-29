@@ -1,0 +1,421 @@
+/* Video Transcriber Web界面样式 */
+
+:root {
+    --primary-color: #0d6efd;
+    --secondary-color: #6c757d;
+    --success-color: #198754;
+    --warning-color: #ffc107;
+    --danger-color: #dc3545;
+    --info-color: #0dcaf0;
+    --light-color: #f8f9fa;
+    --dark-color: #212529;
+    
+    --gradient-bg: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    --shadow-sm: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+    --shadow-md: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+    --shadow-lg: 0 1rem 3rem rgba(0, 0, 0, 0.175);
+}
+
+/* 全局样式 */
+body {
+    font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
+    line-height: 1.6;
+    color: var(--dark-color);
+    background-color: #f8f9fa;
+}
+
+/* 渐变背景 */
+.bg-gradient {
+    background: var(--gradient-bg);
+}
+
+/* 导航栏 */
+.navbar-brand {
+    font-weight: 600;
+    font-size: 1.5rem;
+}
+
+.navbar-nav .nav-link {
+    font-weight: 500;
+    transition: color 0.3s ease;
+}
+
+.navbar-nav .nav-link:hover {
+    color: rgba(255, 255, 255, 0.8) !important;
+}
+
+/* 欢迎横幅 */
+.jumbotron {
+    background: var(--gradient-bg);
+    border: none;
+    box-shadow: var(--shadow-lg);
+}
+
+.jumbotron .badge {
+    padding: 0.5rem 1rem;
+    font-weight: 500;
+}
+
+/* 卡片样式 */
+.card {
+    border: none;
+    box-shadow: var(--shadow-sm);
+    transition: all 0.3s ease;
+}
+
+.card:hover {
+    box-shadow: var(--shadow-md);
+    transform: translateY(-2px);
+}
+
+.card-header {
+    background-color: rgba(var(--bs-primary-rgb), 0.1);
+    border-bottom: 1px solid rgba(var(--bs-primary-rgb), 0.2);
+    font-weight: 600;
+}
+
+/* 表单样式 */
+.form-control:focus {
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.25);
+}
+
+.form-select:focus {
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.25);
+}
+
+/* 按钮样式 */
+.btn {
+    font-weight: 500;
+    transition: all 0.3s ease;
+}
+
+.btn:hover {
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-md);
+}
+
+.btn-lg {
+    padding: 0.75rem 2rem;
+    font-size: 1.1rem;
+}
+
+/* 进度条样式 */
+.progress {
+    height: 8px;
+    border-radius: 10px;
+    background-color: rgba(var(--bs-primary-rgb), 0.1);
+}
+
+.progress-bar {
+    border-radius: 10px;
+    transition: width 0.3s ease;
+}
+
+/* 结果内容样式 */
+.result-content {
+    max-height: 400px;
+    overflow-y: auto;
+    background-color: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 0.375rem;
+    padding: 1rem;
+    font-family: 'Consolas', 'Monaco', monospace;
+    font-size: 0.9rem;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
+.result-content.json {
+    color: #0066cc;
+}
+
+.result-content.srt,
+.result-content.vtt {
+    color: #006600;
+}
+
+/* 批量任务列表 */
+.batch-task-list {
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.batch-task-item {
+    background: white;
+    border: 1px solid #dee2e6;
+    border-radius: 0.375rem;
+    padding: 0.75rem;
+    margin-bottom: 0.5rem;
+    transition: all 0.3s ease;
+}
+
+.batch-task-item:hover {
+    box-shadow: var(--shadow-sm);
+}
+
+.task-url {
+    font-size: 0.85rem;
+    color: var(--secondary-color);
+    word-break: break-all;
+}
+
+.task-status {
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.task-status.pending {
+    color: var(--warning-color);
+}
+
+.task-status.processing {
+    color: var(--info-color);
+}
+
+.task-status.completed {
+    color: var(--success-color);
+}
+
+.task-status.failed {
+    color: var(--danger-color);
+}
+
+/* 历史记录样式 */
+.history-item {
+    background: white;
+    border: 1px solid #dee2e6;
+    border-radius: 0.375rem;
+    padding: 1rem;
+    margin-bottom: 1rem;
+    transition: all 0.3s ease;
+}
+
+.history-item:hover {
+    box-shadow: var(--shadow-sm);
+    border-color: var(--primary-color);
+}
+
+.history-title {
+    font-weight: 600;
+    color: var(--dark-color);
+    margin-bottom: 0.5rem;
+}
+
+.history-meta {
+    font-size: 0.85rem;
+    color: var(--secondary-color);
+    margin-bottom: 0.75rem;
+}
+
+.history-content {
+    font-size: 0.9rem;
+    line-height: 1.5;
+    max-height: 100px;
+    overflow: hidden;
+    position: relative;
+}
+
+.history-content.expanded {
+    max-height: none;
+}
+
+.history-actions {
+    margin-top: 0.75rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid #dee2e6;
+}
+
+/* 标签页样式 */
+.nav-tabs .nav-link {
+    font-weight: 500;
+    color: var(--secondary-color);
+    border: none;
+    border-bottom: 2px solid transparent;
+    transition: all 0.3s ease;
+}
+
+.nav-tabs .nav-link:hover {
+    border-color: rgba(var(--bs-primary-rgb), 0.3);
+    color: var(--primary-color);
+}
+
+.nav-tabs .nav-link.active {
+    color: var(--primary-color);
+    border-color: var(--primary-color);
+    background-color: transparent;
+}
+
+/* Toast通知样式 */
+.toast {
+    background-color: white;
+    border: 1px solid #dee2e6;
+    box-shadow: var(--shadow-md);
+}
+
+.toast-header {
+    background-color: rgba(var(--bs-primary-rgb), 0.1);
+    border-bottom: 1px solid rgba(var(--bs-primary-rgb), 0.2);
+}
+
+/* 加载动画 */
+.loading-spinner {
+    display: inline-block;
+    width: 1rem;
+    height: 1rem;
+    border: 2px solid #f3f3f3;
+    border-top: 2px solid var(--primary-color);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* 状态指示器 */
+.status-indicator {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 0.5rem;
+}
+
+.status-indicator.online {
+    background-color: var(--success-color);
+    animation: pulse 2s infinite;
+}
+
+.status-indicator.offline {
+    background-color: var(--secondary-color);
+}
+
+@keyframes pulse {
+    0% {
+        transform: scale(0.95);
+        box-shadow: 0 0 0 0 rgba(25, 135, 84, 0.7);
+    }
+    
+    70% {
+        transform: scale(1);
+        box-shadow: 0 0 0 10px rgba(25, 135, 84, 0);
+    }
+    
+    100% {
+        transform: scale(0.95);
+        box-shadow: 0 0 0 0 rgba(25, 135, 84, 0);
+    }
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+    .jumbotron {
+        padding: 2rem 1rem !important;
+    }
+    
+    .jumbotron h1 {
+        font-size: 2rem !important;
+    }
+    
+    .card-body {
+        padding: 1rem;
+    }
+    
+    .btn-lg {
+        padding: 0.5rem 1.5rem;
+        font-size: 1rem;
+    }
+    
+    .result-content {
+        font-size: 0.8rem;
+    }
+}
+
+@media (max-width: 576px) {
+    .navbar-brand {
+        font-size: 1.2rem;
+    }
+    
+    .jumbotron h1 {
+        font-size: 1.75rem !important;
+    }
+    
+    .jumbotron .lead {
+        font-size: 1rem;
+    }
+    
+    .badge {
+        font-size: 0.7rem !important;
+    }
+}
+
+/* 滚动条样式 */
+.result-content::-webkit-scrollbar,
+.batch-task-list::-webkit-scrollbar {
+    width: 6px;
+}
+
+.result-content::-webkit-scrollbar-track,
+.batch-task-list::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 3px;
+}
+
+.result-content::-webkit-scrollbar-thumb,
+.batch-task-list::-webkit-scrollbar-thumb {
+    background: #c1c1c1;
+    border-radius: 3px;
+}
+
+.result-content::-webkit-scrollbar-thumb:hover,
+.batch-task-list::-webkit-scrollbar-thumb:hover {
+    background: #a8a8a8;
+}
+
+/* 动画效果 */
+.fade-in {
+    animation: fadeIn 0.5s ease-in;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.slide-in {
+    animation: slideIn 0.3s ease-out;
+}
+
+@keyframes slideIn {
+    from {
+        transform: translateX(-100%);
+    }
+    to {
+        transform: translateX(0);
+    }
+}
+
+/* 特殊效果 */
+.glow {
+    animation: glow 2s ease-in-out infinite alternate;
+}
+
+@keyframes glow {
+    from {
+        box-shadow: 0 0 5px rgba(13, 110, 253, 0.5);
+    }
+    to {
+        box-shadow: 0 0 20px rgba(13, 110, 253, 0.8);
+    }
+}
