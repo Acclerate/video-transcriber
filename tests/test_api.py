@@ -49,7 +49,7 @@ class TestTranscribeEndpoint:
         mock_process.return_value = sample_transcription_result
         
         request_data = {
-            "url": "https://v.douyin.com/test123",
+            "url": "https://v.douyin.com/wrvKzCqdS5k/",
             "options": {
                 "model": "small",
                 "language": "auto",
@@ -98,7 +98,7 @@ class TestTranscribeEndpoint:
         mock_process.side_effect = Exception("处理失败")
         
         request_data = {
-            "url": "https://v.douyin.com/test123",
+            "url": "https://v.douyin.com/wrvKzCqdS5k/",
             "options": {
                 "model": "small"
             }
@@ -116,7 +116,7 @@ class TestBatchTranscribeEndpoint:
         """测试批量转录成功"""
         request_data = {
             "urls": [
-                "https://v.douyin.com/test123",
+                "https://v.douyin.com/wrvKzCqdS5k/",
                 "https://www.bilibili.com/video/BV1234567890"
             ],
             "options": {
@@ -153,7 +153,7 @@ class TestBatchTranscribeEndpoint:
         """测试包含无效URL"""
         request_data = {
             "urls": [
-                "https://v.douyin.com/test123",
+                "https://v.douyin.com/wrvKzCqdS5k/",
                 "invalid-url",
                 "https://unsupported.com/video"
             ],
@@ -178,12 +178,14 @@ class TestStatusEndpoints:
         
         mock_task = TaskInfo(
             task_id="test_task_123",
-            url="https://v.douyin.com/test123",
+            url="https://v.douyin.com/wrvKzCqdS5k/",
             status=TaskStatus.COMPLETED,
             progress=100,
             video_info=sample_video_info,
             result=sample_transcription_result,
-            completed_at=datetime.now()
+            started_at=datetime.now(),
+            completed_at=datetime.now(),
+            error_message=None
         )
         mock_get_status.return_value = mock_task
         

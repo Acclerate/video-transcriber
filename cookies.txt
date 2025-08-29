@@ -1,0 +1,7 @@
+# Netscape HTTP Cookie File
+# This is a generated file! Do not edit.
+
+.douyin.com	TRUE	/	FALSE	1735689600	sessionid	15da84bc6a87a15491333e421a60a4cc
+.douyin.com	TRUE	/	FALSE	1735689600	s_v_web_id	verify_mewgixxp_DeS3s2F4_Jrfl_4CVw_AO6w_tDHBlyaipcUq
+.douyin.com	TRUE	/	FALSE	1735689600	ttwid	1%7CdMYo9M_T66kQQNRTXpoCq7Uorr7JPZLGqmHys-Aq3eE%7C1756472043%7C2f2d0744644ab6d77328355e7c9a07c32faca2ae72bbf0343b5e0b594a284bdf
+.douyin.com	TRUE	/	FALSE	1735689600	odin_tt	a22885bd00bcb0364442ce70a093076332fa5cef86a9abb6856736ce117c8b7d8fafc6656bfbc7d97905022b4c0d7faa8648c5ad1f8bc3d0ef8d84c6569a774a

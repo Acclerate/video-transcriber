@@ -1,0 +1,30 @@
+# 抖音Cookie配置示例文件
+# 
+# 使用说明：
+# 1. 在浏览器中登录抖音 (https://www.douyin.com)
+# 2. 打开开发者工具 (F12)
+# 3. 访问任意抖音视频页面
+# 4. 在 Network 选项卡中查看请求
+# 5. 找到请求头中的 Cookie 信息
+# 6. 将Cookie信息按照以下格式填入：
+
+# 格式: domain	flag	path	secure	expiration	name	value
+# 真实的Cookie配置:
+.douyin.com	TRUE	/	FALSE	1735689600	sessionid	15da84bc6a87a15491333e421a60a4cc
+.douyin.com	TRUE	/	FALSE	1735689600	s_v_web_id	verify_mewgixxp_DeS3s2F4_Jrfl_4CVw_AO6w_tDHBlyaipcUq
+.douyin.com	TRUE	/	FALSE	1735689600	ttwid	1%7CdMYo9M_T66kQQNRTXpoCq7Uorr7JPZLGqmHys-Aq3eE%7C1756472043%7C2f2d0744644ab6d77328355e7c9a07c32faca2ae72bbf0343b5e0b594a284bdf
+.douyin.com	TRUE	/	FALSE	1735689600	odin_tt	a22885bd00bcb0364442ce70a093076332fa5cef86a9abb6856736ce117c8b7d8fafc6656bfbc7d97905022b4c0d7faa8648c5ad1f8bc3d0ef8d84c6569a774a
+sessionid	15da84bc6a87a15491333e421a60a4cc	
+s_v_web_id	verify_mewgixxp_DeS3s2F4_Jrfl_4CVw_AO6w_tDHBlyaipcUq
+ttwid	1%7CdMYo9M_T66kQQNRTXpoCq7Uorr7JPZLGqmHys-Aq3eE%7C1756472043%7C2f2d0744644ab6d77328355e7c9a07c32faca2ae72bbf0343b5e0b594a284bdf	.d
+odin_tt a22885bd00bcb0364442ce70a093076332fa5cef86a9abb6856736ce117c8b7d8fafc6656bfbc7d97905022b4c0d7faa8648c5ad1f8bc3d0ef8d84c6569a774a
+
+
+
+
+# 注意事项:
+
+
+# 1. 请勿分享真实的cookie值给他人
+# 2. Cookie有时效性，过期后需要重新获取
+# 3. 本文件仅为示例，实际使用时请替换为真实值

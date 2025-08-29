@@ -48,6 +48,12 @@ class VideoDownloader:
             'extractor_retries': 3,
             'retries': 3,
         }
+        
+        # 检查并添加cookies配置
+        cookies_path = Path('./cookies.txt')
+        if cookies_path.exists():
+            self.base_ytdl_opts['cookiefile'] = str(cookies_path)
+            logger.info(f"已加载cookies文件: {cookies_path}")
     
     async def download_video(
         self, 

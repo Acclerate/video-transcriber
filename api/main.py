@@ -11,8 +11,9 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Depends, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi import Request
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
@@ -162,8 +163,9 @@ async def health_check():
 
 
 @app.post("/api/v1/transcribe", response_model=TranscribeResponse)
-@limiter.limit("10/minute")
+# @limiter.limit("10/minute")
 async def transcribe_video(
+    req: Request,
     request: TranscribeRequest,
     background_tasks: BackgroundTasks,
     credentials: HTTPAuthorizationCredentials = Depends(verify_api_key)
@@ -209,8 +211,9 @@ async def transcribe_video(
 
 
 @app.post("/api/v1/batch-transcribe", response_model=BatchTranscribeResponse)
-@limiter.limit("3/minute")
+# @limiter.limit("3/minute")
 async def batch_transcribe_videos(
+    req: Request,
     request: BatchTranscribeRequest,
     background_tasks: BackgroundTasks,
     credentials: HTTPAuthorizationCredentials = Depends(verify_api_key)
@@ -430,21 +433,27 @@ async def get_websocket_status():
 
 # 错误处理
 @app.exception_handler(404)
-async def not_found_handler(request, exc):
-    return APIResponse(
-        code=404,
-        message="资源不存在",
-        data=None
+async def not_found_handler(request: Request, exc):
+    return JSONResponse(
+        status_code=404,
+        content={
+            "code": 404,
+            "message": "资源不存在",
+            "data": None
+        }
     )
 
 
 @app.exception_handler(500)
-async def internal_error_handler(request, exc):
+async def internal_error_handler(request: Request, exc):
     logger.error(f"内部服务器错误: {exc}")
-    return APIResponse(
-        code=500,
-        message="内部服务器错误",
-        data=None
+    return JSONResponse(
+        status_code=500,
+        content={
+            "code": 500,
+            "message": "内部服务器错误",
+            "data": None
+        }
     )
 
 
