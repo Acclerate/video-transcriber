@@ -28,6 +28,8 @@ from models.schemas import (
     WhisperModel, Language, Platform, BatchTaskInfo
 )
 from core import transcription_engine, video_parser
+from core.douyin_auth import get_authenticator, cleanup_authenticator, LoginStatus
+from core.cookie_manager import get_cookie_manager, validate_cookies, get_cookies_info
 from utils import setup_default_logger, validate_url
 from .websocket import websocket_endpoint, ws_manager
 
@@ -68,6 +70,12 @@ async def lifespan(app: FastAPI):
     # 关闭时执行
     logger.info("关闭Video Transcriber API服务")
     cleanup_task.cancel()
+    
+    # 清理抖音认证器
+    try:
+        await cleanup_authenticator()
+    except Exception as e:
+        logger.error(f"清理认证器失败: {e}")
     
     try:
         await cleanup_task
@@ -416,6 +424,221 @@ async def cleanup_system(
 async def websocket_transcribe(websocket: WebSocket):
     """WebSocket转录端点"""
     await websocket_endpoint(websocket)
+
+
+@app.websocket("/ws/auth/douyin")
+async def websocket_douyin_auth(websocket: WebSocket):
+    """WebSocket抖音扫码登录端点"""
+    await websocket.accept()
+    auth = None
+    
+    try:
+        # 创建认证器实例
+        auth = await get_authenticator()
+        
+        # 添加状态变化回调
+        async def status_callback(status: LoginStatus):
+            await websocket.send_json({
+                "type": "status_change",
+                "status": status.value,
+                "message": {
+                    LoginStatus.INITIALIZING: "正在初始化浏览器...",
+                    LoginStatus.QR_GENERATED: "二维码已生成",
+                    LoginStatus.WAITING_SCAN: "请使用抖音APP扫描二维码",
+                    LoginStatus.SCANNED: "扫描成功，请在手机上确认登录",
+                    LoginStatus.SUCCESS: "登录成功！Cookies已保存",
+                    LoginStatus.FAILED: "登录失败，请重试",
+                    LoginStatus.TIMEOUT: "登录超时，请重新扫码",
+                    LoginStatus.STOPPED: "已停止登录流程"
+                }.get(status, "未知状态")
+            })
+        
+        auth.add_callback('status_change', status_callback)
+        
+        # 启动登录流程
+        result = await auth.start_login()
+        
+        # 发送结果
+        await websocket.send_json({
+            "type": "login_result",
+            "status": result.status.value,
+            "message": result.message,
+            "qr_code": result.qr_code.image_data if result.qr_code else None,
+            "cookies_count": len(result.cookies) if result.cookies else 0
+        })
+        
+        # 保持连接，等待客户端断开
+        while True:
+            try:
+                message = await websocket.receive_json()
+                if message.get("action") == "refresh_qr":
+                    # 刷新二维码
+                    qr_code = await auth.refresh_qr_code()
+                    if qr_code:
+                        await websocket.send_json({
+                            "type": "qr_refresh",
+                            "qr_code": qr_code.image_data
+                        })
+                elif message.get("action") == "stop":
+                    break
+            except Exception:
+                break
+                
+    except Exception as e:
+        logger.error(f"WebSocket抖音认证失败: {e}")
+        await websocket.send_json({
+            "type": "error",
+            "message": f"认证失败: {str(e)}"
+        })
+    finally:
+        if auth:
+            await auth.stop()
+        try:
+            await websocket.close()
+        except:
+            pass
+
+
+@app.post("/api/v1/auth/douyin/start")
+async def start_douyin_auth():
+    """启动抖音扫码登录"""
+    try:
+        auth = await get_authenticator()
+        
+        # 检查是否已有进行中的认证
+        if auth.status not in [LoginStatus.IDLE, LoginStatus.STOPPED, LoginStatus.FAILED]:
+            return APIResponse(
+                code=400,
+                message="已有进行中的登录流程",
+                data={"status": auth.status.value}
+            )
+        
+        return APIResponse(
+            code=200,
+            message="请通过WebSocket连接进行扫码登录",
+            data={"websocket_url": "/ws/auth/douyin"}
+        )
+        
+    except Exception as e:
+        logger.error(f"启动抖音认证失败: {e}")
+        raise HTTPException(status_code=500, detail=f"启动失败: {str(e)}")
+
+
+@app.get("/api/v1/auth/douyin/status")
+async def get_douyin_auth_status():
+    """获取抖音登录状态"""
+    try:
+        auth = await get_authenticator()
+        
+        return APIResponse(
+            code=200,
+            message="查询成功",
+            data={
+                "status": auth.status.value,
+                "cookies_exists": auth.cookies_file.exists() if hasattr(auth, 'cookies_file') else False
+            }
+        )
+        
+    except Exception as e:
+        logger.error(f"查询抖音认证状态失败: {e}")
+        raise HTTPException(status_code=500, detail="查询失败")
+
+
+@app.post("/api/v1/auth/douyin/stop")
+async def stop_douyin_auth():
+    """停止抖音扫码登录"""
+    try:
+        await cleanup_authenticator()
+        
+        return APIResponse(
+            code=200,
+            message="已停止登录流程",
+            data=None
+        )
+        
+    except Exception as e:
+        logger.error(f"停止抖音认证失败: {e}")
+        raise HTTPException(status_code=500, detail="停止失败")
+
+
+@app.get("/api/v1/cookies/info")
+async def get_cookies_info_api():
+    """获取cookies信息"""
+    try:
+        info = get_cookies_info()
+        
+        return APIResponse(
+            code=200,
+            message="查询成功",
+            data=info
+        )
+        
+    except Exception as e:
+        logger.error(f"获取cookies信息失败: {e}")
+        raise HTTPException(status_code=500, detail="查询失败")
+
+
+@app.get("/api/v1/cookies/validate")
+async def validate_cookies_api():
+    """验证cookies有效性"""
+    try:
+        is_valid = validate_cookies()
+        
+        return APIResponse(
+            code=200,
+            message="验证完成",
+            data={
+                "valid": is_valid,
+                "message": "Cookies有效" if is_valid else "Cookies无效或不存在"
+            }
+        )
+        
+    except Exception as e:
+        logger.error(f"验证cookies失败: {e}")
+        raise HTTPException(status_code=500, detail="验证失败")
+
+
+@app.post("/api/v1/cookies/backup")
+async def backup_cookies_api():
+    """备份cookies"""
+    try:
+        manager = get_cookie_manager()
+        success = manager.backup_cookies()
+        
+        if success:
+            return APIResponse(
+                code=200,
+                message="Cookies备份成功",
+                data=None
+            )
+        else:
+            return APIResponse(
+                code=400,
+                message="Cookies备份失败",
+                data=None
+            )
+        
+    except Exception as e:
+        logger.error(f"备份cookies失败: {e}")
+        raise HTTPException(status_code=500, detail="备份失败")
+
+
+@app.get("/api/v1/cookies/backups")
+async def get_cookies_backups():
+    """获取cookies备份列表"""
+    try:
+        manager = get_cookie_manager()
+        backups = manager.get_backup_list()
+        
+        return APIResponse(
+            code=200,
+            message="查询成功",
+            data={"backups": backups}
+        )
+        
+    except Exception as e:
+        logger.error(f"获取cookies备份列表失败: {e}")
+        raise HTTPException(status_code=500, detail="查询失败")
 
 
 @app.get("/api/v1/ws/status")

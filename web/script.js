@@ -4,7 +4,9 @@ class VideoTranscriberUI {
     constructor() {
         this.apiBaseUrl = window.location.origin;
         this.wsUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws/transcribe`;
+        this.douyinAuthWsUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws/auth/douyin`;
         this.ws = null;
+        this.douyinAuthWs = null;
         this.currentTaskId = null;
         this.batchTasks = new Map();
         this.history = this.loadHistory();
@@ -17,6 +19,7 @@ class VideoTranscriberUI {
         this.loadHistory();
         this.displayHistory();
         this.initWebSocket();
+        this.initDouyinAuth();
     }
     
     bindEvents() {
@@ -24,6 +27,19 @@ class VideoTranscriberUI {
         document.getElementById('transcribeForm').addEventListener('submit', (e) => {
             e.preventDefault();
             this.handleSingleTranscribe();
+        });
+        
+        // 抖音扫码登录相关事件
+        document.getElementById('startQRLoginBtn').addEventListener('click', () => {
+            this.startDouyinQRLogin();
+        });
+        
+        document.getElementById('stopQRLoginBtn').addEventListener('click', () => {
+            this.stopDouyinQRLogin();
+        });
+        
+        document.getElementById('checkCookieBtn').addEventListener('click', () => {
+            this.checkDouyinCookieStatus();
         });
         
         // 批量转录按钮
@@ -625,6 +641,199 @@ class VideoTranscriberUI {
             return text;
         }
         return text.substring(0, maxLength) + '...';
+    }
+    
+    // ========== 抖音扫码登录相关方法 ==========
+    
+    async startDouyinQRLogin() {
+        const startBtn = document.getElementById('startQRLoginBtn');
+        const stopBtn = document.getElementById('stopQRLoginBtn');
+        const qrContainer = document.getElementById('qrCodeContainer');
+        const statusContainer = document.getElementById('qrStatusContainer');
+        
+        try {
+            // 更新UI状态
+            startBtn.style.display = 'none';
+            stopBtn.style.display = 'inline-block';
+            qrContainer.style.display = 'none';
+            statusContainer.style.display = 'block';
+            
+            this.updateQRStatus('正在初始化浏览器...');
+            
+            // 关闭已有连接
+            if (this.douyinAuthWs) {
+                this.douyinAuthWs.close();
+            }
+            
+            // 创建WebSocket连接
+            this.douyinAuthWs = new WebSocket(this.douyinAuthWsUrl);
+            
+            this.douyinAuthWs.onopen = () => {
+                console.log('抖音认证WebSocket连接建立');
+                this.updateQRStatus('连接建立，正在生成二维码...');
+            };
+            
+            this.douyinAuthWs.onmessage = (event) => {
+                try {
+                    const message = JSON.parse(event.data);
+                    this.handleDouyinAuthMessage(message);
+                } catch (error) {
+                    console.error('抖音认证消息解析失败:', error);
+                }
+            };
+            
+            this.douyinAuthWs.onclose = () => {
+                console.log('抖音认证WebSocket连接关闭');
+                this.resetQRLoginUI();
+            };
+            
+            this.douyinAuthWs.onerror = (error) => {
+                console.error('抖音认证WebSocket错误:', error);
+                this.showToast('扫码登录连接失败', 'error');
+                this.resetQRLoginUI();
+            };
+            
+        } catch (error) {
+            console.error('启动抖音扫码登录失败:', error);
+            this.showToast('启动扫码登录失败', 'error');
+            this.resetQRLoginUI();
+        }
+    }
+    
+    stopDouyinQRLogin() {
+        if (this.douyinAuthWs) {
+            // 发送停止消息
+            try {
+                this.douyinAuthWs.send(JSON.stringify({ action: 'stop' }));
+            } catch (error) {
+                console.error('发送停止消息失败:', error);
+            }
+            
+            this.douyinAuthWs.close();
+            this.douyinAuthWs = null;
+        }
+        
+        this.resetQRLoginUI();
+        this.showToast('已停止扫码登录', 'info');
+    }
+    
+    handleDouyinAuthMessage(message) {
+        const { type, status, message: msg, qr_code, cookies_count } = message;
+        
+        switch (type) {
+            case 'status_change':
+                this.updateQRStatus(msg);
+                
+                // 根据状态更新UI
+                if (status === 'qr_generated' && qr_code) {
+                    this.displayQRCode(qr_code);
+                } else if (status === 'success') {
+                    this.onQRLoginSuccess(cookies_count);
+                } else if (status === 'failed' || status === 'timeout') {
+                    this.onQRLoginFailed(msg);
+                }
+                break;
+                
+            case 'login_result':
+                if (status === 'success') {
+                    this.onQRLoginSuccess(cookies_count);
+                } else {
+                    this.onQRLoginFailed(msg);
+                }
+                break;
+                
+            case 'qr_refresh':
+                if (qr_code) {
+                    this.displayQRCode(qr_code);
+                    this.updateQRStatus('二维码已刷新');
+                }
+                break;
+                
+            case 'error':
+                this.onQRLoginFailed(msg);
+                break;
+                
+            default:
+                console.log('未知抖音认证消息类型:', type);
+        }
+    }
+    
+    displayQRCode(qrCodeData) {
+        const qrImage = document.getElementById('qrCodeImage');
+        const qrContainer = document.getElementById('qrCodeContainer');
+        const statusContainer = document.getElementById('qrStatusContainer');
+        
+        qrImage.src = qrCodeData;
+        qrContainer.style.display = 'block';
+        statusContainer.style.display = 'none';
+    }
+    
+    updateQRStatus(statusText) {
+        const statusTextEl = document.getElementById('qrStatusText');
+        if (statusTextEl) {
+            statusTextEl.textContent = statusText;
+        }
+    }
+    
+    onQRLoginSuccess(cookiesCount) {
+        this.showToast(`登录成功！已获取${cookiesCount}个cookies`, 'success');
+        this.updateCookieStatus('已登录');
+        this.resetQRLoginUI();
+        
+        // 自动关闭WebSocket连接
+        setTimeout(() => {
+            if (this.douyinAuthWs) {
+                this.douyinAuthWs.close();
+            }
+        }, 2000);
+    }
+    
+    onQRLoginFailed(message) {
+        this.showToast(message || '登录失败', 'error');
+        this.resetQRLoginUI();
+    }
+    
+    resetQRLoginUI() {
+        const startBtn = document.getElementById('startQRLoginBtn');
+        const stopBtn = document.getElementById('stopQRLoginBtn');
+        const qrContainer = document.getElementById('qrCodeContainer');
+        const statusContainer = document.getElementById('qrStatusContainer');
+        
+        startBtn.style.display = 'inline-block';
+        stopBtn.style.display = 'none';
+        qrContainer.style.display = 'none';
+        statusContainer.style.display = 'none';
+    }
+    
+    async checkDouyinCookieStatus() {
+        try {
+            const response = await fetch(`${this.apiBaseUrl}/api/v1/auth/douyin/status`);
+            const result = await response.json();
+            
+            if (result.code === 200) {
+                const status = result.data.cookies_exists ? '已登录' : '未登录';
+                this.updateCookieStatus(status);
+                this.showToast(`Cookie状态: ${status}`, 'info');
+            } else {
+                this.showToast('检查状态失败', 'error');
+            }
+        } catch (error) {
+            console.error('检查Cookie状态失败:', error);
+            this.showToast('检查状态失败', 'error');
+        }
+    }
+    
+    updateCookieStatus(status) {
+        const statusBadge = document.getElementById('cookieStatus');
+        if (statusBadge) {
+            statusBadge.textContent = status;
+            statusBadge.className = `badge ms-2 ${status === '已登录' ? 'bg-success' : 'bg-warning'}`;
+        }
+    }
+    
+    // 初始化时检查Cookie状态
+    async initDouyinAuth() {
+        await this.checkDouyinCookieStatus();
     }
 }
 

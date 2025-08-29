@@ -9,12 +9,14 @@
 ## ✨ 特性
 
 - 🎯 **多平台支持**: 支持抖音、B站等主流短视频平台
+- 📱 **抖音扫码登录**: 一键扫码获取cookies，解决反爬虫限制
 - 🤖 **高精度转录**: 基于OpenAI Whisper，准确率95%+
 - 🔒 **隐私保护**: 本地处理，数据不外泄
 - 🌐 **多种接口**: 命令行、Web API、WebSocket
 - ⚡ **批量处理**: 支持多个视频同时转录
 - 🎵 **智能音频**: 自动提取和优化音频质量
 - 📝 **多种格式**: 支持JSON、TXT、SRT、VTT输出
+- 🔄 **实时状态**: WebSocket实时显示处理进度
 
 ## 🚀 快速开始
 
@@ -41,6 +43,9 @@ source venv/bin/activate  # Windows: venv\Scripts\activate
 
 # 安装Python依赖
 pip install -r requirements.txt
+
+# 安装浏览器（用于抖音扫码登录）
+playwright install
 
 # 安装FFmpeg (Ubuntu/Debian)
 sudo apt update
@@ -109,6 +114,17 @@ print(result["data"]["transcription"]["text"])
 ### Web界面使用
 
 访问 `http://localhost:8000` 使用简洁的Web界面进行转录。
+
+#### 抖音扫码登录
+
+为了更好地解析抖音视频，建议先进行扫码登录：
+
+1. 在Web界面点击“开始扫码登录”
+2. 使用手机抖音APP扫描二维码
+3. 在手机上确认登录
+4. 系统自动保存cookies，提升视频解析成功率
+
+详细使用指南请参考：[docs/douyin_qr_login_guide.md](docs/douyin_qr_login_guide.md)
 
 ## 🛠️ 配置选项
 
@@ -190,7 +206,7 @@ video-transcriber/
 
 | 平台 | 域名 | 状态 | 备注 |
 |------|------|------|------|
-| 抖音 | douyin.com | ✅ | 完全支持 |
+| 抖音 | douyin.com | ✅ | 支持扫码登录 |
 | B站 | bilibili.com | ✅ | 完全支持 |
 | 快手 | kuaishou.com | 🚧 | 开发中 |
 | 小红书 | xiaohongshu.com | 📋 | 计划中 |
