@@ -211,6 +211,9 @@ class SpeechTranscriber:
             if progress_callback:
                 progress_callback(20)
             
+            if self.model is None:
+                raise Exception("模型未加载，请先调用load_model()")
+            
             result = self.model.transcribe(audio_path, **options)
             
             if progress_callback:
@@ -359,7 +362,7 @@ class SpeechTranscriber:
             elif format_type == OutputFormat.VTT:
                 return self._format_vtt(result)
             else:  # JSON
-                return result.model_dump_json(indent=2, ensure_ascii=False)
+                return result.model_dump_json(indent=2)
                 
         except Exception as e:
             logger.error(f"输出格式化失败: {e}")

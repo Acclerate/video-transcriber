@@ -177,7 +177,10 @@ class VideoLinkParser:
         """使用yt-dlp提取视频信息"""
         def _extract():
             with yt_dlp.YoutubeDL(self.ytdl_opts) as ydl:
-                return ydl.extract_info(url, download=False)
+                result = ydl.extract_info(url, download=False)
+                if result is None:
+                    raise Exception(f"无法提取视频信息: {url}")
+                return result
         
         # 在线程池中运行，避免阻塞
         loop = asyncio.get_event_loop()

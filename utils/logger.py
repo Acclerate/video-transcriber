@@ -5,6 +5,7 @@
 
 import sys
 import os
+import time
 from pathlib import Path
 from typing import Optional
 from loguru import logger
@@ -132,7 +133,7 @@ def setup_default_logger(
     )
 
 
-def get_logger(name: str = None):
+def get_logger(name: Optional[str] = None):
     """
     获取日志器实例
     
@@ -220,34 +221,34 @@ def log_execution(func_name: Optional[str] = None, log_level: str = "INFO"):
     def decorator(func):
         async def async_wrapper(*args, **kwargs):
             name = func_name or func.__name__
-            start_time = logger._core.time()
+            start_time = time.time()
             
             logger.log(log_level, f"开始执行: {name}")
             try:
                 result = await func(*args, **kwargs)
-                end_time = logger._core.time()
+                end_time = time.time()
                 duration = end_time - start_time
                 logger.log(log_level, f"执行完成: {name}, 耗时: {duration:.3f}秒")
                 return result
             except Exception as e:
-                end_time = logger._core.time()
+                end_time = time.time()
                 duration = end_time - start_time
                 logger.error(f"执行失败: {name}, 耗时: {duration:.3f}秒, 错误: {e}")
                 raise
         
         def sync_wrapper(*args, **kwargs):
             name = func_name or func.__name__
-            start_time = logger._core.time()
+            start_time = time.time()
             
             logger.log(log_level, f"开始执行: {name}")
             try:
                 result = func(*args, **kwargs)
-                end_time = logger._core.time()
+                end_time = time.time()
                 duration = end_time - start_time
                 logger.log(log_level, f"执行完成: {name}, 耗时: {duration:.3f}秒")
                 return result
             except Exception as e:
-                end_time = logger._core.time()
+                end_time = time.time()
                 duration = end_time - start_time
                 logger.error(f"执行失败: {name}, 耗时: {duration:.3f}秒, 错误: {e}")
                 raise
@@ -268,17 +269,19 @@ class TemporaryLogLevel:
     
     def __init__(self, level: str):
         self.new_level = level.upper()
-        self.old_handlers = []
+        self.temp_handler_id = None
+        self.original_config = None
     
     def __enter__(self):
-        # 保存当前处理器
-        self.old_handlers = logger._core.handlers.copy()
+        # 保存当前配置
+        global _logger_config
+        self.original_config = _logger_config
         
         # 移除所有处理器
         logger.remove()
         
         # 添加临时处理器
-        logger.add(
+        self.temp_handler_id = logger.add(
             sys.stdout,
             level=self.new_level,
             format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | <level>{message}</level>"
@@ -288,11 +291,12 @@ class TemporaryLogLevel:
     
     def __exit__(self, exc_type, exc_val, exc_tb):
         # 移除临时处理器
-        logger.remove()
+        if self.temp_handler_id is not None:
+            logger.remove(self.temp_handler_id)
         
-        # 恢复原有处理器
-        for handler_id, handler in self.old_handlers.items():
-            logger._core.handlers[handler_id] = handler
+        # 恢复原有配置
+        if self.original_config:
+            self.original_config.setup_logger()
 
 
 if __name__ == "__main__":
