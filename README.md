@@ -1,6 +1,6 @@
 # Video Transcriber 🎥➡️📝
 
-一个强大的短视频转文本工具，支持抖音、B站等主流平台的视频链接转录。
+一个强大的本地视频文件转文本工具，基于OpenAI Whisper实现高精度语音识别。
 
 ![Python](https://img.shields.io/badge/python-3.8+-blue.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
@@ -8,14 +8,15 @@
 
 ## ✨ 特性
 
-- 🎯 **多平台支持**: 支持抖音、B站等主流短视频平台
+- 🎯 **本地文件处理**: 直接处理本地视频文件，无需上传
 - 🤖 **高精度转录**: 基于OpenAI Whisper，准确率95%+
-- 🔒 **隐私保护**: 本地处理，数据不外泄
+- 🔒 **隐私保护**: 完全本地处理，数据不外泄
 - 🌐 **多种接口**: 命令行、Web API、WebSocket
 - ⚡ **批量处理**: 支持多个视频同时转录
 - 🎵 **智能音频**: 自动提取和优化音频质量
 - 📝 **多种格式**: 支持JSON、TXT、SRT、VTT输出
 - 🔄 **实时状态**: WebSocket实时显示处理进度
+- 📤 **文件上传**: Web界面支持直接上传视频文件
 
 ## 🚀 快速开始
 
@@ -57,10 +58,10 @@ brew install ffmpeg
 3. **首次运行**
 ```bash
 # 命令行使用
-python main.py --url "https://v.douyin.com/xxxxx"
+python main.py transcribe /path/to/video.mp4
 
 # 启动Web服务
-python -m uvicorn api.main:app --reload
+python main.py serve
 ```
 
 ## 📖 使用方法
@@ -69,19 +70,25 @@ python -m uvicorn api.main:app --reload
 
 ```bash
 # 基础转录
-python main.py --url "https://v.douyin.com/xxxxx"
+python main.py transcribe /path/to/video.mp4
 
 # 指定Whisper模型
-python main.py --url "https://v.douyin.com/xxxxx" --model small
+python main.py transcribe /path/to/video.mp4 --model small
 
 # 包含时间戳
-python main.py --url "https://v.douyin.com/xxxxx" --timestamps
+python main.py transcribe /path/to/video.mp4 --timestamps
 
 # 批量处理
-python main.py --batch urls.txt
+python main.py batch file_list.txt
 
 # 指定输出格式
-python main.py --url "https://v.douyin.com/xxxxx" --format srt
+python main.py transcribe /path/to/video.mp4 --format srt
+
+# 查看系统信息
+python main.py info
+
+# 查看可用模型
+python main.py models
 ```
 
 ### Web API使用
@@ -97,11 +104,23 @@ uvicorn api.main:app --host 0.0.0.0 --port 8000
 ```python
 import requests
 
-# 转录视频
+# 方式1: 使用文件路径
 response = requests.post("http://localhost:8000/api/v1/transcribe", json={
-    "url": "https://v.douyin.com/xxxxx",
-    "options": {"model": "small", "with_timestamps": True}
+    "file_path": "/path/to/video.mp4",
+    "options": {
+        "model": "small",
+        "language": "auto",
+        "with_timestamps": True
+    }
 })
+
+# 方式2: 上传文件
+files = {"file": open("video.mp4", "rb")}
+data = {
+    "model": "small",
+    "language": "auto"
+}
+response = requests.post("http://localhost:8000/api/v1/transcribe/upload", files=files, data=data)
 
 result = response.json()
 print(result["data"]["transcription"]["text"])
@@ -109,7 +128,16 @@ print(result["data"]["transcription"]["text"])
 
 ### Web界面使用
 
-访问 `http://localhost:8000` 使用简洁的Web界面进行转录。
+1. 启动服务:
+```bash
+python main.py serve
+```
+
+2. 访问 `http://localhost:8000`
+
+3. 选择输入方式:
+   - **文件上传**: 直接选择本地视频文件上传
+   - **文件路径**: 输入服务器上视频文件的完整路径
 
 ## 🛠️ 配置选项
 
@@ -122,6 +150,18 @@ print(result["data"]["transcription"]["text"])
 | small | 244MB | 中等 | 很好 | **推荐** |
 | medium | 769MB | 慢 | 优秀 | 高质量需求 |
 | large | 1550MB | 最慢 | 最佳 | 专业场景 |
+
+### 支持的视频格式
+
+| 格式 | 扩展名 | 状态 |
+|------|--------|------|
+| MP4 | .mp4, .m4v | ✅ |
+| AVI | .avi | ✅ |
+| MKV | .mkv | ✅ |
+| MOV | .mov | ✅ |
+| WMV | .wmv | ✅ |
+| FLV | .flv | ✅ |
+| WebM | .webm | ✅ |
 
 ### 环境变量配置
 
@@ -139,12 +179,18 @@ ENABLE_GPU=true
 
 # 文件配置
 TEMP_DIR=./temp
-MAX_FILE_SIZE=100MB
+MAX_FILE_SIZE=500MB
 CLEANUP_AFTER=3600
 
 # 日志配置
 LOG_LEVEL=INFO
 LOG_FILE=./logs/app.log
+
+# API密钥 (可选)
+API_KEY=your_api_key_here
+
+# CORS配置
+CORS_ORIGINS=*
 ```
 
 ## 📁 项目结构
@@ -156,13 +202,11 @@ video-transcriber/
 ├── 📄 main.py                  # 命令行入口
 ├── 📁 api/                     # Web API
 │   ├── 📄 main.py             # FastAPI应用
-│   ├── 📄 routes.py           # API路由
 │   └── 📄 websocket.py        # WebSocket处理
 ├── 📁 core/                    # 核心模块
 │   ├── 📄 __init__.py
 │   ├── 📄 engine.py           # 核心引擎
-│   ├── 📄 parser.py           # 链接解析
-│   ├── 📄 downloader.py       # 视频下载
+│   ├── 📄 downloader.py       # 音频提取
 │   └── 📄 transcriber.py      # 语音转录
 ├── 📁 models/                  # 数据模型
 │   ├── 📄 __init__.py
@@ -187,15 +231,6 @@ video-transcriber/
     └── 📄 docker-compose.yml
 ```
 
-## 🎯 支持的平台
-
-| 平台 | 域名 | 状态 | 备注 |
-|------|------|------|------|
-| 抖音 | douyin.com | ✅ | 支持扫码登录 |
-| B站 | bilibili.com | ✅ | 完全支持 |
-| 快手 | kuaishou.com | 🚧 | 开发中 |
-| 小红书 | xiaohongshu.com | 📋 | 计划中 |
-
 ## ⚡ 性能指标
 
 ### 处理速度 (基于Whisper Small模型)
@@ -212,6 +247,7 @@ video-transcriber/
 - **CPU**: 2-4核推荐
 - **内存**: 4GB+ (Small模型)
 - **GPU**: 可选，3倍加速效果
+- **磁盘**: 临时文件约50-200MB/视频
 
 ## 🔧 开发指南
 
@@ -220,9 +256,6 @@ video-transcriber/
 ```bash
 # 安装开发依赖
 pip install -r requirements.txt
-
-# 安装pre-commit钩子
-pre-commit install
 
 # 运行测试
 pytest
@@ -235,12 +268,39 @@ isort .
 mypy .
 ```
 
-### 添加新平台支持
+### 项目架构
 
-1. 在 `core/parser.py` 中添加新的解析器
-2. 更新 `models/schemas.py` 中的平台枚举
-3. 添加对应的测试用例
-4. 更新文档
+```
+┌─────────────────────────────────────────┐
+│              用户输入层                  │
+│  CLI / Web API / WebSocket / File Upload│
+└────────────┬────────────────────────────┘
+             │
+             ▼
+┌─────────────────────────────────────────┐
+│            核心引擎层                    │
+│     VideoTranscriptionEngine           │
+│  - 任务管理                             │
+│  - 进度追踪                             │
+│  - 批量处理                             │
+└────────────┬────────────────────────────┘
+             │
+     ┌───────┴────────┐
+     │                │
+     ▼                ▼
+┌──────────┐    ┌──────────────┐
+│音频提取器 │    │  语音转录器   │
+│Extractor │    │  Transcriber │
+│          │    │   (Whisper)  │
+└──────────┘    └──────────────┘
+     │                │
+     └────────┬───────┘
+              ▼
+     ┌────────────────┐
+     │  转录结果输出   │
+     │  TXT/JSON/SRT  │
+     └────────────────┘
+```
 
 ## 🐛 故障排除
 
@@ -254,14 +314,17 @@ ffmpeg -version
 # Ubuntu/Debian安装
 sudo apt install ffmpeg
 
+# macOS安装
+brew install ffmpeg
+
 # 添加到PATH环境变量
 export PATH=$PATH:/path/to/ffmpeg
 ```
 
-**2. 视频下载失败**
-- 检查网络连接
-- 确认视频链接有效
-- 更新yt-dlp版本: `pip install -U yt-dlp`
+**2. 文件读取失败**
+- 确认文件路径正确
+- 检查文件权限
+- 确认文件格式支持
 
 **3. 转录准确率低**
 - 尝试更大的Whisper模型
@@ -272,6 +335,15 @@ export PATH=$PATH:/path/to/ffmpeg
 - 使用更小的Whisper模型 (tiny/base)
 - 分段处理长视频
 - 增加系统内存
+
+**5. GPU加速不生效**
+```bash
+# 检查CUDA可用性
+python -c "import torch; print(torch.cuda.is_available())"
+
+# 安装CUDA支持的PyTorch
+pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu118
+```
 
 ### 性能优化
 
@@ -286,6 +358,98 @@ pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu118
 # 预下载模型
 import whisper
 model = whisper.load_model("small")
+```
+
+**3. 批量处理并发数调整**
+```bash
+# 命令行
+python main.py batch file_list.txt --max-concurrent 5
+
+# API
+POST /api/v1/batch-transcribe
+{
+    "max_concurrent": 5
+}
+```
+
+## 📝 API 端点
+
+### 核心端点
+
+| 端点 | 方法 | 描述 |
+|------|------|------|
+| `/api/v1/transcribe` | POST | 使用文件路径转录 |
+| `/api/v1/transcribe/upload` | POST | 上传文件转录 |
+| `/api/v1/batch-transcribe` | POST | 批量转录 |
+| `/api/v1/status/{task_id}` | GET | 查询任务状态 |
+| `/api/v1/models` | GET | 获取可用模型 |
+| `/api/v1/stats` | GET | 获取统计信息 |
+| `/ws/transcribe` | WS | WebSocket实时转录 |
+
+### 请求示例
+
+```python
+# 文件路径方式
+{
+    "file_path": "/path/to/video.mp4",
+    "options": {
+        "model": "small",
+        "language": "zh",
+        "with_timestamps": true,
+        "output_format": "srt",
+        "temperature": 0.0
+    }
+}
+
+# 批量处理
+{
+    "file_paths": [
+        "/path/to/video1.mp4",
+        "/path/to/video2.mp4"
+    ],
+    "options": {
+        "model": "small",
+        "language": "auto"
+    },
+    "max_concurrent": 3
+}
+```
+
+## 🐳 Docker 使用
+
+### 构建镜像
+
+```bash
+docker build -t video-transcriber .
+```
+
+### 运行容器
+
+```bash
+# 基础运行
+docker run -p 8000:8000 video-transcriber
+
+# 挂载视频目录
+docker run -p 8000:8000 -v /path/to/videos:/app/videos video-transcriber
+
+# 使用GPU
+docker run --gpus all -p 8000:8000 video-transcriber
+```
+
+### Docker Compose
+
+```yaml
+version: '3.8'
+services:
+  video-transcriber:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./videos:/app/videos
+    environment:
+      - ENABLE_GPU=true
+      - DEFAULT_MODEL=small
 ```
 
 ## 🤝 贡献指南
@@ -305,8 +469,8 @@ model = whisper.load_model("small")
 ## 🙏 致谢
 
 - [OpenAI Whisper](https://github.com/openai/whisper) - 强大的语音识别模型
-- [yt-dlp](https://github.com/yt-dlp/yt-dlp) - 视频下载工具
 - [FastAPI](https://fastapi.tiangolo.com/) - 现代Web框架
+- [pydub](https://github.com/jiaaro/pydub) - 音频处理库
 
 ## 📞 联系方式
 
