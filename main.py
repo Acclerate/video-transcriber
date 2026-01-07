@@ -23,11 +23,11 @@ from dotenv import load_dotenv
 sys.path.insert(0, str(Path(__file__).parent))
 
 from models.schemas import WhisperModel, Language, OutputFormat, ProcessOptions
-from core import transcription_engine, transcribe_video_file
-from utils import (
-    setup_default_logger, format_duration, format_file_size,
-    check_ffmpeg_installed, get_ffmpeg_help_message
-)
+from config import settings
+from services import TranscriptionService
+from utils.logging import setup_default_logger
+from utils.file import format_duration, format_file_size
+from utils.ffmpeg import check_ffmpeg_installed, get_ffmpeg_help_message
 
 # 加载环境变量
 load_dotenv()
@@ -195,9 +195,12 @@ async def _transcribe_single(file_path, model, language, output, output_format, 
             language=Language(language),
             with_timestamps=timestamps,
             output_format=OutputFormat(output_format),
-            enable_gpu=True,
-            temperature=0.0
+            enable_gpu=settings.ENABLE_GPU,
+            temperature=settings.DEFAULT_TEMPERATURE
         )
+
+        # 使用服务层
+        service = TranscriptionService(settings)
 
         # 创建进度条
         with Progress() as progress:
@@ -208,7 +211,7 @@ async def _transcribe_single(file_path, model, language, output, output_format, 
                 callback = None
 
             # 执行转录
-            result = await transcription_engine.process_video_file(
+            result = await service.transcribe_file(
                 file_path=str(file_path_obj.absolute()),
                 options=options,
                 progress_callback=callback
@@ -326,14 +329,17 @@ async def _transcribe_batch(file_path, model, language, output_dir, output_forma
         # 执行批量处理
         console.print(f"[bold blue]开始批量处理 {len(valid_paths)} 个视频文件...[/bold blue]")
 
+        # 使用服务层
+        service = TranscriptionService(settings)
+
         def batch_progress(batch_id: str, status_info: dict):
             if not quiet:
-                completed = status_info.get('completed', 0)
+                completed = status_info.get('success', 0)
                 failed = status_info.get('failed', 0)
                 total = status_info.get('total', 0)
                 console.print(f"进度: {completed + failed}/{total} (成功: {completed}, 失败: {failed})")
 
-        batch_info = await transcription_engine.process_batch_files(
+        batch_info = await service.transcribe_batch(
             file_paths=valid_paths,
             options=options,
             max_concurrent=max_concurrent,
@@ -341,8 +347,10 @@ async def _transcribe_batch(file_path, model, language, output_dir, output_forma
         )
 
         # 保存结果
-        success_count = 0
-        for task_id, task_info in transcription_engine.tasks.items():
+        success_count = batch_info.get('success', 0)
+        task_service = service.task_service
+
+        for task_id, task_info in task_service.tasks.items():
             if task_info.result:
                 # 生成输出文件名
                 safe_title = task_info.video_info.file_name if task_info.video_info else "unknown"
@@ -360,8 +368,6 @@ async def _transcribe_batch(file_path, model, language, output_dir, output_forma
                 # 保存文件
                 with open(output_file, 'w', encoding='utf-8') as f:
                     f.write(output_text)
-
-                success_count += 1
 
         # 显示结果统计
         console.print(f"\n[bold green]批量处理完成![/bold green]")
@@ -408,8 +414,9 @@ def info():
 
     console.print(info_table)
 
-    # 统计信息
-    stats = transcription_engine.get_statistics()
+    # 统计信息 - 使用服务层
+    service = TranscriptionService(settings)
+    stats = service.get_statistics()
     stats_table = Table(title="📊 使用统计", show_header=False)
     stats_table.add_row("总处理数:", str(stats['total_processed']))
     stats_table.add_row("成功数:", str(stats['total_success']))
@@ -427,12 +434,15 @@ def cleanup(hours):
     try:
         console.print("[bold blue]开始清理...[/bold blue]")
 
+        # 使用服务层
+        service = TranscriptionService(settings)
+
         # 清理任务记录
-        cleaned_tasks = transcription_engine.cleanup_old_tasks(hours)
+        cleaned_tasks = service.task_service.cleanup_old_tasks(hours)
         console.print(f"清理任务记录: {cleaned_tasks} 个")
 
         # 清理临时文件
-        cleaned_files = asyncio.run(transcription_engine.cleanup_temp_files())
+        cleaned_files = asyncio.run(service.cleanup_temp_files())
         console.print(f"清理临时文件: {cleaned_files} 个")
 
         console.print("[bold green]清理完成![/bold green]")

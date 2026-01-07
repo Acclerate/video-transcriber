@@ -23,13 +23,16 @@ import uvicorn
 from loguru import logger
 from rich.console import Console
 
+from config import settings
 from models.schemas import (
     ProcessOptions,
     APIResponse, TranscribeResponse,
     WhisperModel, Language, OutputFormat
 )
-from core import transcription_engine
-from utils import setup_default_logger, check_ffmpeg_installed, get_ffmpeg_help_message
+from services import TranscriptionService
+from utils.logging import setup_default_logger
+from utils.ffmpeg import check_ffmpeg_installed, get_ffmpeg_help_message
+from .routes import health_router, transcribe_router
 from .websocket import websocket_endpoint, ws_manager
 
 
@@ -48,9 +51,9 @@ async def lifespan(app: FastAPI):
 
     # 初始化日志
     setup_default_logger(
-        log_level=os.getenv("LOG_LEVEL", "INFO"),
-        log_file=os.getenv("LOG_FILE", "./logs/api.log"),
-        log_to_console=True
+        log_level=settings.LOG_LEVEL,
+        log_file=str(settings.log_file_path),
+        log_to_console=settings.LOG_TO_CONSOLE
     )
 
     # 依赖检查
@@ -81,9 +84,9 @@ async def lifespan(app: FastAPI):
 
 # 创建FastAPI应用
 app = FastAPI(
-    title="Video Transcriber API",
+    title=settings.APP_NAME,
     description="视频文件转文本服务API",
-    version="2.0.0",
+    version=settings.APP_VERSION,
     docs_url="/docs",
     redoc_url="/redoc",
     lifespan=lifespan
@@ -97,11 +100,15 @@ app.add_middleware(SlowAPIMiddleware)
 # CORS配置
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=os.getenv("CORS_ORIGINS", "*").split(","),
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=settings.CORS_ORIGINS,
+    allow_credentials=settings.CORS_ALLOW_CREDENTIALS,
+    allow_methods=settings.CORS_ALLOW_METHODS,
+    allow_headers=settings.CORS_ALLOW_HEADERS,
 )
+
+# 注册路由
+app.include_router(health_router)
+app.include_router(transcribe_router)
 
 # 静态文件服务
 if os.path.exists("web"):
@@ -110,16 +117,17 @@ if os.path.exists("web"):
 
 async def background_cleanup():
     """后台清理任务"""
+    service = TranscriptionService(settings)
     while True:
         try:
             # 每小时执行一次清理
-            await asyncio.sleep(3600)
+            await asyncio.sleep(settings.TASK_CLEANUP_INTERVAL)
 
             # 清理旧任务记录
-            transcription_engine.cleanup_old_tasks(24)
+            await service.cleanup_old_tasks(settings.TASK_RETENTION_HOURS)
 
             # 清理临时文件
-            await transcription_engine.cleanup_temp_files()
+            await service.cleanup_temp_files()
 
             logger.info("后台清理任务完成")
 
