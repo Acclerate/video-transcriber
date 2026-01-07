@@ -69,7 +69,7 @@ python main.py serve
 python main.py serve
 ```
 
-2. 访问 `http://localhost:8000`
+2. 访问 `http://localhost:8665`
 
 3. 使用方式:
    - **单个转录**: 上传视频文件，选择模型和语言，点击开始转录
@@ -79,10 +79,10 @@ python main.py serve
 
 ```bash
 # 启动API服务
-uvicorn api.main:app --host 0.0.0.0 --port 8000
+uvicorn api.main:app --host 0.0.0.0 --port 8665
 
 # 访问API文档
-# http://localhost:8000/docs
+# http://localhost:8665/docs
 ```
 
 ```python
@@ -96,7 +96,7 @@ data = {
     "with_timestamps": True,
     "output_format": "json"
 }
-response = requests.post("http://localhost:8000/api/v1/transcribe", files=files, data=data)
+response = requests.post("http://localhost:8665/api/v1/transcribe", files=files, data=data)
 
 result = response.json()
 print(result["data"]["transcription"]["text"])
@@ -108,7 +108,7 @@ data = {
     "language": "auto",
     "max_concurrent": 3
 }
-response = requests.post("http://localhost:8000/api/v1/batch-transcribe", files=files, data=data)
+response = requests.post("http://localhost:8665/api/v1/batch-transcribe", files=files, data=data)
 ```
 
 ### 命令行使用
@@ -167,7 +167,7 @@ python main.py models
 ```env
 # 服务配置
 HOST=0.0.0.0
-PORT=8000
+PORT=8665
 DEBUG=false
 
 # Whisper配置
@@ -253,14 +253,14 @@ video-transcriber/
 
 ```bash
 # 单个文件转录
-curl -X POST "http://localhost:8000/api/v1/transcribe" \
+curl -X POST "http://localhost:8665/api/v1/transcribe" \
   -F "file=@video.mp4" \
   -F "model=small" \
   -F "language=auto" \
   -F "output_format=json"
 
 # 批量转录
-curl -X POST "http://localhost:8000/api/v1/batch-transcribe" \
+curl -X POST "http://localhost:8665/api/v1/batch-transcribe" \
   -F "files=@video1.mp4" \
   -F "files=@video2.mp4" \
   -F "model=small" \
@@ -381,7 +381,7 @@ model = whisper.load_model("small")
 **3. 批量处理并发数调整**
 ```bash
 # API调用时调整
-curl -X POST "http://localhost:8000/api/v1/batch-transcribe" \
+curl -X POST "http://localhost:8665/api/v1/batch-transcribe" \
   -F "files=@video1.mp4" \
   -F "files=@video2.mp4" \
   -F "max_concurrent=5"

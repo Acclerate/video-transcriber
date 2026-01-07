@@ -24,13 +24,55 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from models.schemas import WhisperModel, Language, OutputFormat, ProcessOptions
 from core import transcription_engine, transcribe_video_file
-from utils import setup_default_logger, format_duration, format_file_size
+from utils import (
+    setup_default_logger, format_duration, format_file_size,
+    check_ffmpeg_installed, get_ffmpeg_help_message
+)
 
 # 加载环境变量
 load_dotenv()
 
 # 初始化控制台
 console = Console()
+
+
+# ============================================================================
+# 依赖检查
+# ============================================================================
+
+def check_startup_dependencies(exit_on_error: bool = True) -> bool:
+    """
+    启动时检查必需的依赖
+
+    Args:
+        exit_on_error: 如果依赖缺失是否退出程序
+
+    Returns:
+        bool: 依赖是否全部满足
+    """
+    all_ok = True
+    missing = []
+
+    # 检查 FFmpeg
+    if not check_ffmpeg_installed():
+        all_ok = False
+        missing.append("FFmpeg")
+
+    if not all_ok:
+        console.print("\n[bold red]╔════════════════════════════════════════════════════════════════╗[/bold red]")
+        console.print("[bold red]║                     依赖检查失败                                 ║[/bold red]")
+        console.print("[bold red]╚════════════════════════════════════════════════════════════════╝[/bold red]\n")
+
+        for dep in missing:
+            if dep == "FFmpeg":
+                console.print(get_ffmpeg_help_message())
+
+        console.print("[bold yellow]提示: 安装完成后重新运行此命令[/bold yellow]\n")
+
+        if exit_on_error:
+            sys.exit(1)
+
+    return all_ok
 
 
 class ProgressCallback:
@@ -89,8 +131,9 @@ def print_model_info():
 @click.group()
 @click.option('--debug', is_flag=True, help='启用调试模式')
 @click.option('--log-level', default='INFO', help='日志级别')
+@click.option('--skip-deps-check', is_flag=True, help='跳过依赖检查（不推荐）')
 @click.pass_context
-def cli(ctx, debug, log_level):
+def cli(ctx, debug, log_level, skip_deps_check):
     """Video Transcriber - 视频文件转文本工具"""
     ctx.ensure_object(dict)
     ctx.obj['debug'] = debug
@@ -104,6 +147,10 @@ def cli(ctx, debug, log_level):
         log_to_console=True,
         log_file='./logs/app.log' if not debug else None
     )
+
+    # 依赖检查（除非明确跳过）
+    if not skip_deps_check:
+        check_startup_dependencies(exit_on_error=True)
 
 
 @cli.command()
@@ -395,8 +442,37 @@ def cleanup(hours):
 
 
 @cli.command()
+def check():
+    """检查系统依赖是否满足要求"""
+    from utils import get_ffmpeg_version, print_dependency_check
+
+    console.print("\n[bold cyan]╔════════════════════════════════════════════════════════════════╗[/bold cyan]")
+    console.print("[bold cyan]║                      系统依赖检查                               ║[/bold cyan]")
+    console.print("[bold cyan]╚════════════════════════════════════════════════════════════════╝[/bold cyan]\n")
+
+    all_ok = print_dependency_check(console)
+
+    if all_ok:
+        # 显示 FFmpeg 版本信息
+        ffmpeg_version = get_ffmpeg_version()
+        if ffmpeg_version:
+            console.print(f"\n[bold green]✓ FFmpeg 版本信息:[/bold green]")
+            console.print(f"  {ffmpeg_version.split()[0]} {ffmpeg_version.split()[2]}")
+            # 显示更多版本信息
+            lines = ffmpeg_version.split('\n')
+            for line in lines[1:4]:  # 显示前几行配置信息
+                if line.strip():
+                    console.print(f"  {line.strip()}")
+
+        console.print("\n[bold green]✓ 所有依赖已满足，可以正常使用![/bold green]\n")
+    else:
+        console.print("\n[bold yellow]请按照上述提示安装缺失的依赖[/bold yellow]\n")
+        sys.exit(1)
+
+
+@cli.command()
 @click.option('--host', default='0.0.0.0', help='服务主机')
-@click.option('--port', default=8000, help='服务端口')
+@click.option('--port', default=8665, help='服务端口')
 @click.option('--reload', is_flag=True, help='自动重载')
 def serve(host, port, reload):
     """启动Web API服务"""

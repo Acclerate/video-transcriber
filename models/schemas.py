@@ -321,7 +321,7 @@ class ErrorDetail(BaseModel):
 class AppConfig(BaseModel):
     """应用配置"""
     host: str = Field("0.0.0.0", description="服务主机")
-    port: int = Field(8000, description="服务端口")
+    port: int = Field(8665, description="服务端口")
     debug: bool = Field(False, description="调试模式")
     default_model: WhisperModel = Field(WhisperModel.SMALL, description="默认模型")
     enable_gpu: bool = Field(True, description="启用GPU")

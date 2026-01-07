@@ -4,6 +4,7 @@ Video Transcriber Web API
 """
 
 import os
+import sys
 import asyncio
 from typing import Dict, Any
 from contextlib import asynccontextmanager
@@ -20,6 +21,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 import uvicorn
 from loguru import logger
+from rich.console import Console
 
 from models.schemas import (
     ProcessOptions,
@@ -27,12 +29,15 @@ from models.schemas import (
     WhisperModel, Language, OutputFormat
 )
 from core import transcription_engine
-from utils import setup_default_logger
+from utils import setup_default_logger, check_ffmpeg_installed, get_ffmpeg_help_message
 from .websocket import websocket_endpoint, ws_manager
 
 
 # 速率限制器
 limiter = Limiter(key_func=get_remote_address)
+
+# 用于启动时消息输出的控制台
+startup_console = Console(stderr=True)
 
 
 @asynccontextmanager
@@ -47,6 +52,17 @@ async def lifespan(app: FastAPI):
         log_file=os.getenv("LOG_FILE", "./logs/api.log"),
         log_to_console=True
     )
+
+    # 依赖检查
+    if not check_ffmpeg_installed():
+        startup_console.print("\n[bold red]╔════════════════════════════════════════════════════════════════╗[/bold red]")
+        startup_console.print("[bold red]║                     依赖检查失败                                 ║[/bold red]")
+        startup_console.print("[bold red]╚════════════════════════════════════════════════════════════════╝[/bold red]\n")
+        startup_console.print(get_ffmpeg_help_message())
+        startup_console.print("[bold red]API 服务启动失败: 缺少必需的依赖[/bold red]\n")
+        sys.exit(1)
+    else:
+        logger.info("依赖检查通过: FFmpeg 可用")
 
     # 启动后台清理任务
     cleanup_task = asyncio.create_task(background_cleanup())
@@ -465,7 +481,7 @@ if __name__ == "__main__":
     uvicorn.run(
         "api.main:app",
         host=os.getenv("HOST", "0.0.0.0"),
-        port=int(os.getenv("PORT", 8000)),
+        port=int(os.getenv("PORT", 8665)),
         reload=os.getenv("DEBUG", "false").lower() == "true",
         log_level="info"
     )

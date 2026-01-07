@@ -11,7 +11,7 @@ services:
     container_name: video-transcriber
     restart: unless-stopped
     ports:
-      - "8000:8000"
+      - "8665:8665"
     volumes:
       # 挂载配置文件
       - ../logs:/app/logs
@@ -22,7 +22,7 @@ services:
     environment:
       # 基础配置
       - HOST=0.0.0.0
-      - PORT=8000
+      - PORT=8665
       - DEBUG=false
       
       # 日志配置
@@ -44,7 +44,7 @@ services:
       - CORS_ORIGINS=*
       - RATE_LIMIT_PER_MINUTE=60
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8665/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -106,7 +106,7 @@ volumes:
 #     volumes:
 #       # 开发时挂载源代码
 #       - ..:/app
-#     command: ["python", "-m", "uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+#     command: ["python", "-m", "uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8665", "--reload"]
 
 # 生产环境覆盖配置
 # 使用: docker-compose -f docker-compose.yml -f docker-compose.prod.yml up
