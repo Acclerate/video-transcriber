@@ -79,52 +79,6 @@
             <!-- 单个转录 -->
             <div class="tab-pane fade show active" id="single" role="tabpanel">
                 <div class="row mt-4">
-                    <!-- 抖音扫码登录卡片 -->
-                    <div class="col-12 mb-4">
-                        <div class="card border-warning">
-                            <div class="card-header bg-warning bg-opacity-10">
-                                <h6 class="card-title mb-0">
-                                    <i class="bi bi-qr-code me-2"></i>抖音扫码登录
-                                    <span class="badge bg-success ms-2" id="cookieStatus">未登录</span>
-                                </h6>
-                            </div>
-                            <div class="card-body">
-                                <div class="row align-items-center">
-                                    <div class="col-md-8">
-                                        <p class="mb-2">为了更好地解析抖音视频，建议先进行扫码登录获取最新cookies。</p>
-                                        <div class="d-flex gap-2">
-                                            <button class="btn btn-warning" id="startQRLoginBtn">
-                                                <i class="bi bi-qr-code me-2"></i>开始扫码登录
-                                            </button>
-                                            <button class="btn btn-outline-secondary" id="stopQRLoginBtn" style="display: none;">
-                                                <i class="bi bi-stop-circle me-2"></i>停止登录
-                                            </button>
-                                            <button class="btn btn-outline-info" id="checkCookieBtn">
-                                                <i class="bi bi-arrow-clockwise me-2"></i>检查状态
-                                            </button>
-                                        </div>
-                                    </div>
-                                    <div class="col-md-4 text-center">
-                                        <div id="qrCodeContainer" style="display: none;">
-                                            <img id="qrCodeImage" class="img-fluid" style="max-width: 200px; border: 1px solid #ddd; border-radius: 8px;" alt="二维码">
-                                            <div class="mt-2">
-                                                <small class="text-muted">请使用抖音APP扫描二维码</small>
-                                            </div>
-                                        </div>
-                                        <div id="qrStatusContainer" style="display: none;">
-                                            <div class="spinner-border text-warning" role="status">
-                                                <span class="visually-hidden">Loading...</span>
-                                            </div>
-                                            <div class="mt-2">
-                                                <small id="qrStatusText" class="text-muted">正在初始化...</small>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    
                     <div class="col-lg-6">
                         <div class="card">
                             <div class="card-header">
