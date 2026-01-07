@@ -7,8 +7,9 @@ import os
 import asyncio
 from typing import Dict, Any
 from contextlib import asynccontextmanager
+from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks, Depends, WebSocket
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Depends, WebSocket, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
@@ -24,11 +25,11 @@ from loguru import logger
 from models.schemas import (
     TranscribeRequest, BatchTranscribeRequest, ProcessOptions,
     APIResponse, TranscribeResponse, BatchTranscribeResponse,
-    TaskStatusResponse, PlatformsResponse, PlatformInfo,
-    WhisperModel, Language, Platform, BatchTaskInfo
+    TaskStatusResponse,
+    WhisperModel, Language, OutputFormat, BatchTaskInfo
 )
-from core import transcription_engine, video_parser
-from utils import setup_default_logger, validate_url
+from core import transcription_engine
+from utils import setup_default_logger
 from .websocket import websocket_endpoint, ws_manager
 
 
@@ -44,14 +45,14 @@ async def lifespan(app: FastAPI):
     """应用生命周期管理"""
     # 启动时执行
     logger.info("启动Video Transcriber API服务")
-    
+
     # 初始化日志
     setup_default_logger(
         log_level=os.getenv("LOG_LEVEL", "INFO"),
         log_file=os.getenv("LOG_FILE", "./logs/api.log"),
         log_to_console=True
     )
-    
+
     # 预热Whisper模型（跳过预加载以加快启动）
     # try:
     #     from core.transcriber import speech_transcriber
@@ -59,12 +60,12 @@ async def lifespan(app: FastAPI):
     #     logger.info("Whisper模型预加载完成")
     # except Exception as e:
     #     logger.warning(f"模型预加载失败: {e}")
-    
+
     # 启动后台清理任务
     cleanup_task = asyncio.create_task(background_cleanup())
-    
+
     yield
-    
+
     # 关闭时执行
     logger.info("关闭Video Transcriber API服务")
     cleanup_task.cancel()
@@ -78,8 +79,8 @@ async def lifespan(app: FastAPI):
 # 创建FastAPI应用
 app = FastAPI(
     title="Video Transcriber API",
-    description="短视频转文本服务API",
-    version="1.0.0",
+    description="视频文件转文本服务API",
+    version="2.0.0",
     docs_url="/docs",
     redoc_url="/redoc",
     lifespan=lifespan
@@ -118,15 +119,15 @@ async def background_cleanup():
         try:
             # 每小时执行一次清理
             await asyncio.sleep(3600)
-            
+
             # 清理旧任务记录
             transcription_engine.cleanup_old_tasks(24)
-            
+
             # 清理临时文件
             await transcription_engine.cleanup_temp_files()
-            
+
             logger.info("后台清理任务完成")
-            
+
         except asyncio.CancelledError:
             break
         except Exception as e:
@@ -146,7 +147,7 @@ async def root():
             </head>
             <body>
                 <h1>Video Transcriber API</h1>
-                <p>短视频转文本服务API已启动</p>
+                <p>视频文件转文本服务API已启动</p>
                 <ul>
                     <li><a href="/docs">API文档</a></li>
                     <li><a href="/redoc">ReDoc文档</a></li>
@@ -163,46 +164,48 @@ async def health_check():
 
 
 @app.post("/api/v1/transcribe", response_model=TranscribeResponse)
-# @limiter.limit("10/minute")
 async def transcribe_video(
     req: Request,
     request: TranscribeRequest,
     background_tasks: BackgroundTasks,
     credentials: HTTPAuthorizationCredentials = Depends(verify_api_key)
 ):
-    """转录单个视频"""
+    """转录单个视频文件"""
     try:
-        logger.info(f"收到转录请求: {request.url}")
-        
-        # 验证URL
-        if not validate_url(str(request.url)):
-            raise HTTPException(status_code=400, detail="无效的视频链接")
-        
+        logger.info(f"收到转录请求: {request.file_path}")
+
+        # 验证文件路径
+        if not Path(request.file_path).exists():
+            raise HTTPException(status_code=400, detail="文件不存在")
+
+        if not Path(request.file_path).is_file():
+            raise HTTPException(status_code=400, detail="路径不是文件")
+
         # 执行转录
-        result = await transcription_engine.process_video_url(
-            url=str(request.url),
+        result = await transcription_engine.process_video_file(
+            file_path=request.file_path,
             options=request.options
         )
-        
+
         # 获取视频信息
         video_info = None
         for task_info in transcription_engine.tasks.values():
-            if str(task_info.url) == str(request.url) and task_info.video_info:
+            if task_info.file_path == request.file_path and task_info.video_info:
                 video_info = task_info.video_info.model_dump()
                 break
-        
+
         # 返回结果
         response_data = {
             "video_info": video_info,
             "transcription": result.model_dump()
         }
-        
+
         return TranscribeResponse(
             code=200,
             message="转录成功",
             data=response_data
         )
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -210,65 +213,136 @@ async def transcribe_video(
         raise HTTPException(status_code=500, detail=f"转录失败: {str(e)}")
 
 
+@app.post("/api/v1/transcribe/upload", response_model=TranscribeResponse)
+async def transcribe_upload(
+    req: Request,
+    file: UploadFile = File(...),
+    model: str = "small",
+    language: str = "auto",
+    with_timestamps: bool = False,
+    output_format: str = "json",
+    credentials: HTTPAuthorizationCredentials = Depends(verify_api_key)
+):
+    """上传视频文件并转录"""
+    temp_file_path = None
+    try:
+        logger.info(f"收到文件上传请求: {file.filename}")
+
+        # 创建上传目录
+        upload_dir = Path("./temp/uploads")
+        upload_dir.mkdir(parents=True, exist_ok=True)
+
+        # 保存上传的文件
+        temp_file_path = upload_dir / file.filename
+        with open(temp_file_path, "wb") as buffer:
+            content = await file.read()
+            buffer.write(content)
+
+        # 构建请求选项
+        options = ProcessOptions(
+            model=WhisperModel(model),
+            language=Language(language),
+            with_timestamps=with_timestamps,
+            output_format=OutputFormat(output_format),
+            enable_gpu=True,
+            temperature=0.0
+        )
+
+        # 执行转录
+        result = await transcription_engine.process_video_file(
+            file_path=str(temp_file_path),
+            options=options
+        )
+
+        # 获取视频信息
+        video_info = None
+        for task_info in transcription_engine.tasks.values():
+            if task_info.file_path == str(temp_file_path) and task_info.video_info:
+                video_info = task_info.video_info.model_dump()
+                break
+
+        # 返回结果
+        response_data = {
+            "video_info": video_info,
+            "transcription": result.model_dump()
+        }
+
+        return TranscribeResponse(
+            code=200,
+            message="转录成功",
+            data=response_data
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"转录失败: {e}")
+        raise HTTPException(status_code=500, detail=f"转录失败: {str(e)}")
+    finally:
+        # 清理上传的文件
+        if temp_file_path and temp_file_path.exists():
+            try:
+                temp_file_path.unlink()
+            except Exception:
+                pass
+
+
 @app.post("/api/v1/batch-transcribe", response_model=BatchTranscribeResponse)
-# @limiter.limit("3/minute")
 async def batch_transcribe_videos(
     req: Request,
     request: BatchTranscribeRequest,
     background_tasks: BackgroundTasks,
     credentials: HTTPAuthorizationCredentials = Depends(verify_api_key)
 ):
-    """批量转录视频"""
+    """批量转录视频文件"""
     try:
-        logger.info(f"收到批量转录请求: {len(request.urls)} 个URL")
-        
-        # 验证URL数量
-        if len(request.urls) > 20:
-            raise HTTPException(status_code=400, detail="单次最多支持20个视频")
-        
-        # 验证所有URL
-        invalid_urls = []
-        for url in request.urls:
-            if not validate_url(str(url)):
-                invalid_urls.append(str(url))
-        
-        if invalid_urls:
+        logger.info(f"收到批量转录请求: {len(request.file_paths)} 个文件")
+
+        # 验证文件数量
+        if len(request.file_paths) > 20:
+            raise HTTPException(status_code=400, detail="单次最多支持20个文件")
+
+        # 验证所有文件路径
+        invalid_paths = []
+        for file_path in request.file_paths:
+            if not Path(file_path).exists() or not Path(file_path).is_file():
+                invalid_paths.append(file_path)
+
+        if invalid_paths:
             raise HTTPException(
-                status_code=400, 
-                detail=f"存在无效的视频链接: {', '.join(invalid_urls[:3])}"
+                status_code=400,
+                detail=f"存在无效的文件路径: {', '.join(invalid_paths[:3])}"
             )
-        
+
         # 启动批量处理（异步）
-        urls_str = [str(url) for url in request.urls]
-        
         async def process_batch():
             try:
-                await transcription_engine.process_batch_urls(
-                    urls=urls_str,
+                await transcription_engine.process_batch_files(
+                    file_paths=request.file_paths,
                     options=request.options,
                     max_concurrent=request.max_concurrent
                 )
             except Exception as e:
                 logger.error(f"批量处理失败: {e}")
-        
+
         background_tasks.add_task(process_batch)
-        
+
         # 创建批量任务记录
         batch_id = transcription_engine._generate_batch_id()
         batch_info = BatchTaskInfo(
             batch_id=batch_id,
-            total_count=len(request.urls),
-            pending_count=len(request.urls),
+            total_count=len(request.file_paths),
+            pending_count=len(request.file_paths),
             completed_count=0,
             failed_count=0
         )
-        
+
         return BatchTranscribeResponse(
             code=200,
             message="批量任务已创建",
             data=batch_info
         )
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -281,16 +355,16 @@ async def get_task_status(task_id: str):
     """查询任务状态"""
     try:
         task_info = transcription_engine.get_task_status(task_id)
-        
+
         if not task_info:
             raise HTTPException(status_code=404, detail="任务不存在")
-        
+
         return TaskStatusResponse(
             code=200,
             message="查询成功",
             data=task_info
         )
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -303,46 +377,20 @@ async def get_batch_status(batch_id: str):
     """查询批量任务状态"""
     try:
         batch_info = transcription_engine.get_batch_status(batch_id)
-        
+
         if not batch_info:
             raise HTTPException(status_code=404, detail="批量任务不存在")
-        
+
         return APIResponse(
             code=200,
             message="查询成功",
             data=batch_info.model_dump()
         )
-        
+
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"查询批量任务状态失败: {e}")
-        raise HTTPException(status_code=500, detail="查询失败")
-
-
-@app.get("/api/v1/platforms", response_model=PlatformsResponse)
-async def get_supported_platforms():
-    """获取支持的平台列表"""
-    try:
-        platforms_data = video_parser.get_supported_platforms()
-        
-        platforms = []
-        for platform_name, platform_data in platforms_data.items():
-            platforms.append(PlatformInfo(
-                name=Platform(platform_name),
-                display_name=platform_data["display_name"],
-                domains=platform_data["domains"],
-                supported=platform_data["supported"]
-            ))
-        
-        return PlatformsResponse(
-            code=200,
-            message="查询成功",
-            data={"platforms": platforms}
-        )
-        
-    except Exception as e:
-        logger.error(f"查询支持平台失败: {e}")
         raise HTTPException(status_code=500, detail="查询失败")
 
 
@@ -351,10 +399,10 @@ async def get_available_models():
     """获取可用的Whisper模型"""
     try:
         from core.transcriber import speech_transcriber
-        
+
         models_info = speech_transcriber.get_available_models()
         current_model = speech_transcriber.get_model_info()
-        
+
         return APIResponse(
             code=200,
             message="查询成功",
@@ -363,7 +411,7 @@ async def get_available_models():
                 "current_model": current_model
             }
         )
-        
+
     except Exception as e:
         logger.error(f"查询模型信息失败: {e}")
         raise HTTPException(status_code=500, detail="查询失败")
@@ -374,13 +422,13 @@ async def get_statistics():
     """获取系统统计信息"""
     try:
         stats = transcription_engine.get_statistics()
-        
+
         return APIResponse(
             code=200,
             message="查询成功",
             data=stats
         )
-        
+
     except Exception as e:
         logger.error(f"查询统计信息失败: {e}")
         raise HTTPException(status_code=500, detail="查询失败")
@@ -394,10 +442,10 @@ async def cleanup_system(
     try:
         # 清理任务记录
         cleaned_tasks = transcription_engine.cleanup_old_tasks(24)
-        
+
         # 清理临时文件
         cleaned_files = await transcription_engine.cleanup_temp_files()
-        
+
         return APIResponse(
             code=200,
             message="清理完成",
@@ -406,7 +454,7 @@ async def cleanup_system(
                 "cleaned_files": cleaned_files
             }
         )
-        
+
     except Exception as e:
         logger.error(f"系统清理失败: {e}")
         raise HTTPException(status_code=500, detail="清理失败")

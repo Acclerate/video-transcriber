@@ -5,8 +5,7 @@
 fastapi==0.104.1
 uvicorn[standard]==0.24.0
 
-# Video Processing
-yt-dlp==2023.11.16
+# Audio Processing
 pydub==0.25.1
 
 # Speech Recognition
