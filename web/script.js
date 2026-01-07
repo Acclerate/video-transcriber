@@ -8,6 +8,8 @@ class VideoTranscriberUI {
         this.currentTaskId = null;
         this.batchTasks = new Map();
         this.history = this.loadHistory();
+        this.selectedFile = null;
+        this.selectedBatchFiles = [];
 
         this.init();
     }
@@ -20,9 +22,90 @@ class VideoTranscriberUI {
     }
 
     bindEvents() {
-        // 单个转录按钮
+        // 单个转录 - 文件选择
+        const videoFileInput = document.getElementById('videoFile');
+        const uploadArea = document.getElementById('uploadArea');
+
+        // 点击上传区域
+        uploadArea.addEventListener('click', (e) => {
+            if (e.target !== videoFileInput) {
+                videoFileInput.click();
+            }
+        });
+
+        // 文件选择变化
+        videoFileInput.addEventListener('change', (e) => {
+            this.handleFileSelect(e.target.files[0]);
+        });
+
+        // 拖拽上传
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('drag-over');
+        });
+
+        uploadArea.addEventListener('dragleave', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('drag-over');
+        });
+
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('drag-over');
+            const file = e.dataTransfer.files[0];
+            if (file && file.type.startsWith('video/')) {
+                videoFileInput.files = e.dataTransfer.files;
+                this.handleFileSelect(file);
+            } else {
+                this.showToast('请上传视频文件', 'warning');
+            }
+        });
+
+        // 移除文件
+        document.getElementById('removeFileBtn').addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.removeSelectedFile();
+        });
+
+        // 转录按钮
         document.getElementById('transcribeBtn').addEventListener('click', () => {
             this.handleSingleTranscribe();
+        });
+
+        // 批量转录 - 文件选择
+        const batchFilesInput = document.getElementById('batchFiles');
+        const batchUploadArea = document.getElementById('batchUploadArea');
+
+        batchUploadArea.addEventListener('click', (e) => {
+            if (e.target !== batchFilesInput) {
+                batchFilesInput.click();
+            }
+        });
+
+        batchFilesInput.addEventListener('change', (e) => {
+            this.handleBatchFilesSelect(e.target.files);
+        });
+
+        batchUploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            batchUploadArea.classList.add('drag-over');
+        });
+
+        batchUploadArea.addEventListener('dragleave', (e) => {
+            e.preventDefault();
+            batchUploadArea.classList.remove('drag-over');
+        });
+
+        batchUploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            batchUploadArea.classList.remove('drag-over');
+            const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('video/'));
+            if (files.length > 0) {
+                batchFilesInput.files = e.dataTransfer.files;
+                this.handleBatchFilesSelect(files);
+            } else {
+                this.showToast('请上传视频文件', 'warning');
+            }
         });
 
         // 批量转录按钮
@@ -55,13 +138,105 @@ class VideoTranscriberUI {
         });
     }
 
+    handleFileSelect(file) {
+        if (!file) return;
+
+        // 验证文件类型
+        if (!file.type.startsWith('video/')) {
+            this.showToast('请选择视频文件', 'warning');
+            return;
+        }
+
+        // 验证文件大小 (500MB)
+        const maxSize = 500 * 1024 * 1024;
+        if (file.size > maxSize) {
+            this.showToast('文件大小不能超过500MB', 'warning');
+            return;
+        }
+
+        this.selectedFile = file;
+
+        // 显示文件信息
+        document.querySelector('.upload-placeholder').style.display = 'none';
+        document.getElementById('fileInfo').style.display = 'block';
+        document.getElementById('fileName').textContent = file.name;
+        document.getElementById('fileSize').textContent = this.formatFileSize(file.size);
+
+        // 启用转录按钮
+        document.getElementById('transcribeBtn').disabled = false;
+    }
+
+    removeSelectedFile() {
+        this.selectedFile = null;
+        document.getElementById('videoFile').value = '';
+        document.querySelector('.upload-placeholder').style.display = 'block';
+        document.getElementById('fileInfo').style.display = 'none';
+        document.getElementById('transcribeBtn').disabled = true;
+    }
+
+    handleBatchFilesSelect(files) {
+        if (!files || files.length === 0) return;
+
+        // 验证文件数量
+        if (files.length > 10) {
+            this.showToast('单次最多支持10个文件', 'warning');
+            return;
+        }
+
+        // 验证文件类型和大小
+        const maxSize = 500 * 1024 * 1024;
+        this.selectedBatchFiles = [];
+
+        for (const file of Array.from(files)) {
+            if (!file.type.startsWith('video/')) {
+                this.showToast(`跳过非视频文件: ${file.name}`, 'warning');
+                continue;
+            }
+            if (file.size > maxSize) {
+                this.showToast(`文件过大(跳过): ${file.name}`, 'warning');
+                continue;
+            }
+            this.selectedBatchFiles.push(file);
+        }
+
+        if (this.selectedBatchFiles.length === 0) {
+            this.showToast('没有有效的视频文件', 'warning');
+            return;
+        }
+
+        // 显示文件列表
+        this.displaySelectedFiles();
+
+        // 启用批量转录按钮
+        document.getElementById('batchTranscribeBtn').disabled = false;
+    }
+
+    displaySelectedFiles() {
+        const container = document.getElementById('selectedFiles');
+        const fileList = document.getElementById('fileList');
+
+        container.style.display = 'block';
+
+        fileList.innerHTML = this.selectedBatchFiles.map((file, index) => `
+            <div class="file-item">
+                <div class="d-flex align-items-center">
+                    <i class="bi bi-file-earmark-play me-2"></i>
+                    <div class="flex-grow-1">
+                        <div class="file-name">${file.name}</div>
+                        <small class="text-muted">${this.formatFileSize(file.size)}</small>
+                    </div>
+                    <span class="badge bg-primary">#${index + 1}</span>
+                </div>
+            </div>
+        `).join('');
+    }
+
     initWebSocket() {
         try {
             this.ws = new WebSocket(this.wsUrl);
 
             this.ws.onopen = () => {
                 console.log('WebSocket连接建立');
-                this.updateConnectionStatus(true);
             };
 
             this.ws.onmessage = (event) => {
@@ -75,26 +250,15 @@ class VideoTranscriberUI {
 
             this.ws.onclose = () => {
                 console.log('WebSocket连接关闭');
-                this.updateConnectionStatus(false);
-                // 5秒后重连
                 setTimeout(() => this.initWebSocket(), 5000);
             };
 
             this.ws.onerror = (error) => {
                 console.error('WebSocket错误:', error);
-                this.updateConnectionStatus(false);
             };
 
         } catch (error) {
             console.error('WebSocket初始化失败:', error);
-            this.updateConnectionStatus(false);
-        }
-    }
-
-    updateConnectionStatus(isConnected) {
-        const indicator = document.querySelector('.status-indicator');
-        if (indicator) {
-            indicator.className = `status-indicator ${isConnected ? 'online' : 'offline'}`;
         }
     }
 
@@ -117,94 +281,41 @@ class VideoTranscriberUI {
     }
 
     async handleSingleTranscribe() {
-        const btn = document.getElementById('transcribeBtn');
-
-        // 检查输入方式
-        const uploadPanelActive = document.querySelector('#upload-panel.active');
-        const pathPanelActive = document.querySelector('#path-panel.active');
-
-        let fileOrPath = null;
-        let useUpload = false;
-
-        if (uploadPanelActive) {
-            const fileInput = document.getElementById('videoFile');
-            if (!fileInput.files || fileInput.files.length === 0) {
-                this.showToast('请选择视频文件', 'warning');
-                return;
-            }
-            fileOrPath = fileInput.files[0];
-            useUpload = true;
-        } else if (pathPanelActive) {
-            const pathInput = document.getElementById('videoPath');
-            fileOrPath = pathInput.value.trim();
-            if (!fileOrPath) {
-                this.showToast('请输入视频文件路径', 'warning');
-                return;
-            }
-            useUpload = false;
-        } else {
-            this.showToast('请选择输入方式', 'warning');
+        if (!this.selectedFile) {
+            this.showToast('请先选择视频文件', 'warning');
             return;
         }
 
+        const btn = document.getElementById('transcribeBtn');
+
         // 禁用表单
         this.toggleForm(false);
-        btn.innerHTML = '<span class="loading-spinner me-2"></span>处理中...';
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>处理中...';
 
         try {
             // 显示进度卡片
             this.showProgressCard();
 
-            if (useUpload) {
-                // 使用文件上传方式
-                const formData = new FormData();
-                formData.append('file', fileOrPath);
-                formData.append('model', document.getElementById('model').value);
-                formData.append('language', document.getElementById('language').value);
-                formData.append('with_timestamps', document.getElementById('timestamps').checked);
-                formData.append('output_format', document.getElementById('outputFormat').value);
+            // 使用文件上传方式
+            const formData = new FormData();
+            formData.append('file', this.selectedFile);
+            formData.append('model', document.getElementById('model').value);
+            formData.append('language', document.getElementById('language').value);
+            formData.append('with_timestamps', document.getElementById('timestamps').checked);
+            formData.append('output_format', document.getElementById('outputFormat').value);
 
-                const response = await fetch(`${this.apiBaseUrl}/api/v1/transcribe/upload`, {
-                    method: 'POST',
-                    body: formData
-                });
+            const response = await fetch(`${this.apiBaseUrl}/api/v1/transcribe`, {
+                method: 'POST',
+                body: formData
+            });
 
-                const result = await response.json();
+            const result = await response.json();
 
-                if (result.code === 200) {
-                    this.displayResultFromAPI(result.data.transcription);
-                    this.showToast('转录完成!', 'success');
-                } else {
-                    throw new Error(result.message);
-                }
+            if (result.code === 200) {
+                this.displayResultFromAPI(result.data.transcription);
+                this.showToast('转录完成!', 'success');
             } else {
-                // 使用文件路径方式
-                const requestData = {
-                    file_path: fileOrPath,
-                    options: {
-                        model: document.getElementById('model').value,
-                        language: document.getElementById('language').value,
-                        with_timestamps: document.getElementById('timestamps').checked,
-                        output_format: document.getElementById('outputFormat').value
-                    }
-                };
-
-                const response = await fetch(`${this.apiBaseUrl}/api/v1/transcribe`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify(requestData)
-                });
-
-                const result = await response.json();
-
-                if (result.code === 200) {
-                    this.displayResultFromAPI(result.data.transcription);
-                    this.showToast('转录完成!', 'success');
-                } else {
-                    throw new Error(result.message);
-                }
+                throw new Error(result.message);
             }
 
         } catch (error) {
@@ -217,54 +328,34 @@ class VideoTranscriberUI {
     }
 
     async handleBatchTranscribe() {
-        const pathsText = document.getElementById('batchPaths').value.trim();
+        if (this.selectedBatchFiles.length === 0) {
+            this.showToast('请先选择视频文件', 'warning');
+            return;
+        }
+
         const btn = document.getElementById('batchTranscribeBtn');
-
-        if (!pathsText) {
-            this.showToast('请输入视频文件路径列表', 'warning');
-            return;
-        }
-
-        const paths = pathsText.split('\n')
-            .map(path => path.trim())
-            .filter(path => path && !path.startsWith('#'));
-
-        if (paths.length === 0) {
-            this.showToast('没有找到有效的文件路径', 'warning');
-            return;
-        }
-
-        if (paths.length > 20) {
-            this.showToast('最多支持20个文件', 'error');
-            return;
-        }
 
         try {
             btn.disabled = true;
-            btn.innerHTML = '<span class="loading-spinner me-2"></span>处理中...';
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>处理中...';
 
-            const requestData = {
-                file_paths: paths,
-                options: {
-                    model: document.getElementById('batchModel').value,
-                    language: 'auto',
-                    output_format: 'txt'
-                },
-                max_concurrent: parseInt(document.getElementById('maxConcurrent').value)
-            };
+            const formData = new FormData();
+            this.selectedBatchFiles.forEach(file => {
+                formData.append('files', file);
+            });
+            formData.append('model', document.getElementById('batchModel').value);
+            formData.append('language', 'auto');
+            formData.append('max_concurrent', document.getElementById('maxConcurrent').value);
 
             const response = await fetch(`${this.apiBaseUrl}/api/v1/batch-transcribe`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(requestData)
+                body: formData
             });
 
             const result = await response.json();
 
             if (result.code === 200) {
-                this.showBatchProgress(paths);
+                this.showBatchProgress();
                 this.showToast('批量任务已启动', 'success');
             } else {
                 throw new Error(result.message);
@@ -286,7 +377,7 @@ class VideoTranscriberUI {
         progressCard.style.display = 'block';
         resultCard.style.display = 'none';
 
-        this.updateProgress({ progress: 0, message: '准备中...' });
+        this.updateProgress({ progress: 0, message: '上传文件中...' });
     }
 
     updateProgress(data) {
@@ -347,7 +438,7 @@ class VideoTranscriberUI {
 
         // 保存到历史记录
         this.saveToHistory({
-            path: document.getElementById('videoPath').value || document.getElementById('videoFile').files[0]?.name || '未知',
+            path: this.selectedFile ? this.selectedFile.name : '未知',
             result: data,
             timestamp: new Date().toISOString(),
             format: format
@@ -359,7 +450,7 @@ class VideoTranscriberUI {
         this.showToast('转录完成!', 'success');
     }
 
-    showBatchProgress(paths) {
+    showBatchProgress() {
         const progressDiv = document.getElementById('batchProgress');
         const taskList = document.getElementById('batchTaskList');
 
@@ -369,13 +460,13 @@ class VideoTranscriberUI {
         taskList.innerHTML = '';
 
         // 创建任务项
-        paths.forEach((path, index) => {
+        this.selectedBatchFiles.forEach((file, index) => {
             const taskItem = document.createElement('div');
             taskItem.className = 'batch-task-item';
             taskItem.innerHTML = `
                 <div class="d-flex justify-content-between align-items-center">
                     <div class="flex-grow-1">
-                        <div class="task-path">${this.truncatePath(path)}</div>
+                        <div class="task-path">${file.name}</div>
                         <div class="task-status pending" id="task-status-${index}">等待中</div>
                     </div>
                     <div class="task-progress">
@@ -460,8 +551,7 @@ class VideoTranscriberUI {
     }
 
     toggleForm(enabled) {
-        const form = document.getElementById('transcribeBtn');
-        const inputs = document.querySelectorAll('#single input, #single select, #single button:not(#copyBtn):not(#downloadBtn)');
+        const inputs = document.querySelectorAll('#single input, #single select, #single button:not(#copyBtn):not(#downloadBtn):not(#removeFileBtn)');
 
         inputs.forEach(input => {
             input.disabled = !enabled;
@@ -532,7 +622,7 @@ class VideoTranscriberUI {
                 <div class="history-meta">
                     <span class="me-3">
                         <i class="bi bi-file-earmark-play me-1"></i>
-                        ${this.truncatePath(item.path)}
+                        ${item.path}
                     </span>
                     <span class="me-3">
                         <i class="bi bi-clock me-1"></i>
@@ -621,9 +711,12 @@ class VideoTranscriberUI {
         }
     }
 
-    truncatePath(path) {
-        if (path.length <= 50) return path;
-        return path.substring(0, 47) + '...';
+    formatFileSize(bytes) {
+        if (bytes === 0) return '0 B';
+        const k = 1024;
+        const sizes = ['B', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
     }
 
     truncateText(text, maxLength) {

@@ -1,6 +1,6 @@
 # Video Transcriber 🎥➡️📝
 
-一个强大的本地视频文件转文本工具，基于OpenAI Whisper实现高精度语音识别。
+一个强大的视频文件转文本工具，基于OpenAI Whisper实现高精度语音识别。
 
 ![Python](https://img.shields.io/badge/python-3.8+-blue.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
@@ -8,15 +8,14 @@
 
 ## ✨ 特性
 
-- 🎯 **本地文件处理**: 直接处理本地视频文件，无需上传
+- 📤 **文件上传**: 直接上传视频文件进行处理
 - 🤖 **高精度转录**: 基于OpenAI Whisper，准确率95%+
-- 🔒 **隐私保护**: 完全本地处理，数据不外泄
-- 🌐 **多种接口**: 命令行、Web API、WebSocket
+- 🔒 **隐私保护**: 本地处理，数据不外泄
+- 🌐 **Web界面**: 简洁易用的Web界面
 - ⚡ **批量处理**: 支持多个视频同时转录
 - 🎵 **智能音频**: 自动提取和优化音频质量
 - 📝 **多种格式**: 支持JSON、TXT、SRT、VTT输出
-- 🔄 **实时状态**: WebSocket实时显示处理进度
-- 📤 **文件上传**: Web界面支持直接上传视频文件
+- 🔄 **实时状态**: 实时显示处理进度
 
 ## 🚀 快速开始
 
@@ -31,7 +30,7 @@
 
 1. **克隆项目**
 ```bash
-git clone https://github.com/yourusername/video-transcriber.git
+git clone https://github.com/Acclerate/video-transcriber.git
 cd video-transcriber
 ```
 
@@ -55,16 +54,62 @@ brew install ffmpeg
 # 下载并安装: https://ffmpeg.org/download.html
 ```
 
-3. **首次运行**
+3. **启动服务**
 ```bash
-# 命令行使用
-python main.py transcribe /path/to/video.mp4
-
 # 启动Web服务
 python main.py serve
 ```
 
 ## 📖 使用方法
+
+### Web界面使用
+
+1. 启动服务:
+```bash
+python main.py serve
+```
+
+2. 访问 `http://localhost:8000`
+
+3. 使用方式:
+   - **单个转录**: 上传视频文件，选择模型和语言，点击开始转录
+   - **批量转录**: 一次上传多个视频文件（最多10个），自动批量处理
+
+### API 使用
+
+```bash
+# 启动API服务
+uvicorn api.main:app --host 0.0.0.0 --port 8000
+
+# 访问API文档
+# http://localhost:8000/docs
+```
+
+```python
+import requests
+
+# 单个文件转录
+files = {"file": open("video.mp4", "rb")}
+data = {
+    "model": "small",
+    "language": "auto",
+    "with_timestamps": True,
+    "output_format": "json"
+}
+response = requests.post("http://localhost:8000/api/v1/transcribe", files=files, data=data)
+
+result = response.json()
+print(result["data"]["transcription"]["text"])
+
+# 批量转录
+files = [("files", open(f"video{i}.mp4", "rb")) for i in range(3)]
+data = {
+    "model": "small",
+    "language": "auto",
+    "max_concurrent": 3
+}
+response = requests.post("http://localhost:8000/api/v1/batch-transcribe", files=files, data=data)
+```
 
 ### 命令行使用
 
@@ -90,54 +135,6 @@ python main.py info
 # 查看可用模型
 python main.py models
 ```
-
-### Web API使用
-
-```bash
-# 启动API服务
-uvicorn api.main:app --host 0.0.0.0 --port 8000
-
-# 访问API文档
-# http://localhost:8000/docs
-```
-
-```python
-import requests
-
-# 方式1: 使用文件路径
-response = requests.post("http://localhost:8000/api/v1/transcribe", json={
-    "file_path": "/path/to/video.mp4",
-    "options": {
-        "model": "small",
-        "language": "auto",
-        "with_timestamps": True
-    }
-})
-
-# 方式2: 上传文件
-files = {"file": open("video.mp4", "rb")}
-data = {
-    "model": "small",
-    "language": "auto"
-}
-response = requests.post("http://localhost:8000/api/v1/transcribe/upload", files=files, data=data)
-
-result = response.json()
-print(result["data"]["transcription"]["text"])
-```
-
-### Web界面使用
-
-1. 启动服务:
-```bash
-python main.py serve
-```
-
-2. 访问 `http://localhost:8000`
-
-3. 选择输入方式:
-   - **文件上传**: 直接选择本地视频文件上传
-   - **文件路径**: 输入服务器上视频文件的完整路径
 
 ## 🛠️ 配置选项
 
@@ -186,9 +183,6 @@ CLEANUP_AFTER=3600
 LOG_LEVEL=INFO
 LOG_FILE=./logs/app.log
 
-# API密钥 (可选)
-API_KEY=your_api_key_here
-
 # CORS配置
 CORS_ORIGINS=*
 ```
@@ -219,16 +213,7 @@ video-transcriber/
 │   ├── 📄 index.html
 │   ├── 📄 style.css
 │   └── 📄 script.js
-├── 📁 tests/                   # 测试文件
-│   ├── 📄 test_core.py
-│   ├── 📄 test_api.py
-│   └── 📄 test_integration.py
-├── 📁 docs/                    # 文档
-│   ├── 📄 technical_specification.md
-│   └── 📄 api_documentation.md
-└── 📁 docker/                  # Docker配置
-    ├── 📄 Dockerfile
-    └── 📄 docker-compose.yml
+└── 📁 tests/                   # 测试文件
 ```
 
 ## ⚡ 性能指标
@@ -248,6 +233,39 @@ video-transcriber/
 - **内存**: 4GB+ (Small模型)
 - **GPU**: 可选，3倍加速效果
 - **磁盘**: 临时文件约50-200MB/视频
+
+## 📝 API 端点
+
+### 核心端点
+
+| 端点 | 方法 | 描述 |
+|------|------|------|
+| `/api/v1/transcribe` | POST | 上传文件转录 |
+| `/api/v1/batch-transcribe` | POST | 批量转录（多文件上传） |
+| `/api/v1/status/{task_id}` | GET | 查询任务状态 |
+| `/api/v1/batch-status/{batch_id}` | GET | 查询批量任务状态 |
+| `/api/v1/models` | GET | 获取可用模型 |
+| `/api/v1/stats` | GET | 获取统计信息 |
+| `/api/v1/cleanup` | POST | 清理临时文件 |
+| `/ws/transcribe` | WS | WebSocket实时转录 |
+
+### 请求示例
+
+```bash
+# 单个文件转录
+curl -X POST "http://localhost:8000/api/v1/transcribe" \
+  -F "file=@video.mp4" \
+  -F "model=small" \
+  -F "language=auto" \
+  -F "output_format=json"
+
+# 批量转录
+curl -X POST "http://localhost:8000/api/v1/batch-transcribe" \
+  -F "files=@video1.mp4" \
+  -F "files=@video2.mp4" \
+  -F "model=small" \
+  -F "max_concurrent=3"
+```
 
 ## 🔧 开发指南
 
@@ -273,7 +291,7 @@ mypy .
 ```
 ┌─────────────────────────────────────────┐
 │              用户输入层                  │
-│  CLI / Web API / WebSocket / File Upload│
+│       Web Upload / WebSocket            │
 └────────────┬────────────────────────────┘
              │
              ▼
@@ -321,10 +339,10 @@ brew install ffmpeg
 export PATH=$PATH:/path/to/ffmpeg
 ```
 
-**2. 文件读取失败**
-- 确认文件路径正确
-- 检查文件权限
-- 确认文件格式支持
+**2. 文件上传失败**
+- 检查文件大小是否超过500MB
+- 确认文件格式为视频格式
+- 检查网络连接
 
 **3. 转录准确率低**
 - 尝试更大的Whisper模型
@@ -333,7 +351,7 @@ export PATH=$PATH:/path/to/ffmpeg
 
 **4. 内存不足**
 - 使用更小的Whisper模型 (tiny/base)
-- 分段处理长视频
+- 减少并发处理数量
 - 增加系统内存
 
 **5. GPU加速不生效**
@@ -362,57 +380,11 @@ model = whisper.load_model("small")
 
 **3. 批量处理并发数调整**
 ```bash
-# 命令行
-python main.py batch file_list.txt --max-concurrent 5
-
-# API
-POST /api/v1/batch-transcribe
-{
-    "max_concurrent": 5
-}
-```
-
-## 📝 API 端点
-
-### 核心端点
-
-| 端点 | 方法 | 描述 |
-|------|------|------|
-| `/api/v1/transcribe` | POST | 使用文件路径转录 |
-| `/api/v1/transcribe/upload` | POST | 上传文件转录 |
-| `/api/v1/batch-transcribe` | POST | 批量转录 |
-| `/api/v1/status/{task_id}` | GET | 查询任务状态 |
-| `/api/v1/models` | GET | 获取可用模型 |
-| `/api/v1/stats` | GET | 获取统计信息 |
-| `/ws/transcribe` | WS | WebSocket实时转录 |
-
-### 请求示例
-
-```python
-# 文件路径方式
-{
-    "file_path": "/path/to/video.mp4",
-    "options": {
-        "model": "small",
-        "language": "zh",
-        "with_timestamps": true,
-        "output_format": "srt",
-        "temperature": 0.0
-    }
-}
-
-# 批量处理
-{
-    "file_paths": [
-        "/path/to/video1.mp4",
-        "/path/to/video2.mp4"
-    ],
-    "options": {
-        "model": "small",
-        "language": "auto"
-    },
-    "max_concurrent": 3
-}
+# API调用时调整
+curl -X POST "http://localhost:8000/api/v1/batch-transcribe" \
+  -F "files=@video1.mp4" \
+  -F "files=@video2.mp4" \
+  -F "max_concurrent=5"
 ```
 
 ## 🐳 Docker 使用
@@ -429,9 +401,6 @@ docker build -t video-transcriber .
 # 基础运行
 docker run -p 8000:8000 video-transcriber
 
-# 挂载视频目录
-docker run -p 8000:8000 -v /path/to/videos:/app/videos video-transcriber
-
 # 使用GPU
 docker run --gpus all -p 8000:8000 video-transcriber
 ```
@@ -445,11 +414,10 @@ services:
     build: .
     ports:
       - "8000:8000"
-    volumes:
-      - ./videos:/app/videos
     environment:
       - ENABLE_GPU=true
       - DEFAULT_MODEL=small
+    restart: unless-stopped
 ```
 
 ## 🤝 贡献指南
@@ -474,8 +442,8 @@ services:
 
 ## 📞 联系方式
 
-- 项目链接: [https://github.com/yourusername/video-transcriber](https://github.com/yourusername/video-transcriber)
-- 问题反馈: [Issues](https://github.com/yourusername/video-transcriber/issues)
+- 项目链接: [https://github.com/Acclerate/video-transcriber](https://github.com/Acclerate/video-transcriber)
+- 问题反馈: [Issues](https://github.com/Acclerate/video-transcriber/issues)
 
 ---
 

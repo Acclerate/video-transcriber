@@ -45,7 +45,7 @@
             <div class="col-12">
                 <div class="jumbotron bg-gradient p-5 rounded-3 text-white text-center">
                     <h1 class="display-4 fw-bold">🎥 视频转文本工具</h1>
-                    <p class="lead">支持本地视频文件，基于OpenAI Whisper高精度语音识别</p>
+                    <p class="lead">上传视频文件，基于OpenAI Whisper高精度语音识别</p>
                     <div class="d-flex justify-content-center gap-3 mt-3">
                         <span class="badge bg-success fs-6">🔒 本地处理</span>
                         <span class="badge bg-info fs-6">🤖 AI驱动</span>
@@ -83,38 +83,30 @@
                         <div class="card">
                             <div class="card-header">
                                 <h5 class="card-title mb-0">
-                                    <i class="bi bi-file-earmark-play me-2"></i>视频转录
+                                    <i class="bi bi-cloud-upload me-2"></i>上传视频文件
                                 </h5>
                             </div>
                             <div class="card-body">
-                                <!-- 输入方式选择 -->
-                                <ul class="nav nav-pills mb-3" id="inputMethodTab" role="tablist">
-                                    <li class="nav-item" role="presentation">
-                                        <button class="nav-link active" id="upload-tab" data-bs-toggle="pill" data-bs-target="#upload-panel" type="button">
-                                            <i class="bi bi-cloud-upload me-2"></i>文件上传
-                                        </button>
-                                    </li>
-                                    <li class="nav-item" role="presentation">
-                                        <button class="nav-link" id="path-tab" data-bs-toggle="pill" data-bs-target="#path-panel" type="button">
-                                            <i class="bi bi-folder me-2"></i>文件路径
-                                        </button>
-                                    </li>
-                                </ul>
-
-                                <!-- 上传面板 -->
-                                <div class="tab-content" id="inputMethodContent">
-                                    <div class="tab-pane fade show active" id="upload-panel">
-                                        <div class="mb-3">
-                                            <input type="file" class="form-control" id="videoFile" accept="video/*">
-                                            <div class="form-text">支持 MP4, AVI, MKV, MOV 等常见视频格式</div>
+                                <!-- 文件上传区域 -->
+                                <div class="mb-4">
+                                    <div class="upload-area" id="uploadArea">
+                                        <input type="file" class="form-control" id="videoFile" accept="video/*" style="display: none;">
+                                        <div class="upload-placeholder text-center py-5">
+                                            <i class="bi bi-cloud-arrow-up display-4 text-muted"></i>
+                                            <p class="mt-3 mb-2">拖拽视频文件到此处，或点击选择文件</p>
+                                            <small class="text-muted">支持 MP4, AVI, MKV, MOV 等格式，最大500MB</small>
                                         </div>
-                                    </div>
-                                    <div class="tab-pane fade" id="path-panel">
-                                        <div class="mb-3">
-                                            <label for="videoPath" class="form-label">视频文件路径</label>
-                                            <input type="text" class="form-control" id="videoPath"
-                                                   placeholder="请输入视频文件的完整路径">
-                                            <div class="form-text">例如: /path/to/video.mp4 或 C:\Videos\video.mp4</div>
+                                        <div class="file-info" id="fileInfo" style="display: none;">
+                                            <div class="d-flex align-items-center">
+                                                <i class="bi bi-file-earmark-play fs-4 me-3"></i>
+                                                <div class="flex-grow-1">
+                                                    <div class="fw-bold" id="fileName"></div>
+                                                    <small class="text-muted" id="fileSize"></small>
+                                                </div>
+                                                <button type="button" class="btn btn-sm btn-outline-danger" id="removeFileBtn">
+                                                    <i class="bi bi-x-lg"></i>
+                                                </button>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
@@ -162,7 +154,7 @@
                                     </div>
                                 </div>
 
-                                <button type="button" class="btn btn-primary btn-lg w-100" id="transcribeBtn">
+                                <button type="button" class="btn btn-primary btn-lg w-100" id="transcribeBtn" disabled>
                                     <i class="bi bi-play-fill me-2"></i>开始转录
                                 </button>
                             </div>
@@ -218,11 +210,22 @@
                             <div class="card-body">
                                 <div class="row">
                                     <div class="col-lg-6">
+                                        <!-- 批量文件上传 -->
                                         <div class="mb-3">
-                                            <label for="batchPaths" class="form-label">视频文件路径列表</label>
-                                            <textarea class="form-control" id="batchPaths" rows="10"
-                                                      placeholder="请输入视频文件路径，每行一个&#10;&#10;例如：&#10;/path/to/video1.mp4&#10;/path/to/video2.mp4&#10;C:\Videos\video3.mp4"></textarea>
-                                            <div class="form-text">每行一个路径，最多支持20个</div>
+                                            <label class="form-label">选择视频文件（最多10个）</label>
+                                            <div class="upload-area" id="batchUploadArea">
+                                                <input type="file" class="form-control" id="batchFiles" accept="video/*" multiple style="display: none;">
+                                                <div class="upload-placeholder text-center py-4">
+                                                    <i class="bi bi-files display-4 text-muted"></i>
+                                                    <p class="mt-3 mb-2">拖拽多个视频文件到此处，或点击选择</p>
+                                                    <small class="text-muted">单次最多支持10个文件</small>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div id="selectedFiles" class="mb-3" style="display: none;">
+                                            <label class="form-label">已选择的文件</label>
+                                            <div class="file-list" id="fileList"></div>
                                         </div>
 
                                         <div class="row">
@@ -247,7 +250,7 @@
                                             </div>
                                         </div>
 
-                                        <button type="button" class="btn btn-primary btn-lg w-100" id="batchTranscribeBtn">
+                                        <button type="button" class="btn btn-primary btn-lg w-100" id="batchTranscribeBtn" disabled>
                                             <i class="bi bi-play-fill me-2"></i>开始批量转录
                                         </button>
                                     </div>
@@ -301,7 +304,7 @@
         <div class="container text-center">
             <p class="text-muted mb-0">
                 © 2024 Video Transcriber | 基于OpenAI Whisper |
-                <a href="https://github.com/yourusername/video-transcriber" target="_blank">
+                <a href="https://github.com/Acclerate/video-transcriber" target="_blank">
                     <i class="bi bi-github"></i> GitHub
                 </a>
             </p>
