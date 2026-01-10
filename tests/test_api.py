@@ -8,7 +8,7 @@ from unittest.mock import patch, AsyncMock
 from fastapi.testclient import TestClient
 
 from api.main import app
-from models.schemas import Platform, WhisperModel, Language
+from models.schemas import WhisperModel, Language
 
 
 @pytest.fixture
@@ -201,42 +201,10 @@ class TestStatusEndpoints:
     def test_get_task_status_not_found(self, mock_get_status, client):
         """测试任务不存在"""
         mock_get_status.return_value = None
-        
+
         response = client.get("/api/v1/status/nonexistent_task")
         assert response.status_code == 404
         assert "任务不存在" in response.json()["detail"]
-
-
-class TestPlatformsEndpoint:
-    """平台信息端点测试"""
-    
-    @patch('core.video_parser.get_supported_platforms')
-    def test_get_platforms(self, mock_get_platforms, client):
-        """测试获取支持的平台"""
-        mock_platforms = {
-            "douyin": {
-                "name": "douyin",
-                "display_name": "抖音",
-                "domains": ["douyin.com", "v.douyin.com"],
-                "supported": True
-            },
-            "bilibili": {
-                "name": "bilibili", 
-                "display_name": "哔哩哔哩",
-                "domains": ["bilibili.com", "b23.tv"],
-                "supported": True
-            }
-        }
-        mock_get_platforms.return_value = mock_platforms
-        
-        response = client.get("/api/v1/platforms")
-        assert response.status_code == 200
-        
-        data = response.json()
-        assert data["code"] == 200
-        assert "platforms" in data["data"]
-        platforms = data["data"]["platforms"]
-        assert len(platforms) == 2
 
 
 class TestModelsEndpoint:

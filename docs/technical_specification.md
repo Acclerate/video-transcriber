@@ -1,40 +1,40 @@
-# 短视频转文本系统 - 技术设计文档
+# 视频转文本系统 - 技术设计文档
 
 ## 1. 项目概述
 
 ### 1.1 功能描述
-实现抖音、B站等平台分享链接对应短视频的自动转录，将视频中的语音内容转换为文本。
+实现本地视频文件的自动转录，将视频中的语音内容转换为文本。
 
 ### 1.2 核心特性
-- ✅ 支持抖音、B站等主流短视频平台
-- ✅ 高精度语音识别（基于OpenAI Whisper）
+- ✅ 支持多种视频格式上传
+- ✅ 高精度语音识别（基于 OpenAI Whisper）
 - ✅ 本地处理，保护隐私
 - ✅ 支持中英文混合识别
-- ✅ 提供命令行和Web API两种使用方式
+- ✅ 提供 Web API 使用方式
 - ✅ 支持批量处理
 
 ## 2. 技术架构
 
 ### 2.1 整体架构
 ```
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   前端界面      │    │   Web API       │    │   命令行工具    │
-│   (HTML+JS)     │    │   (FastAPI)     │    │   (CLI)         │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
-         │                       │                       │
-         └───────────────────────┼───────────────────────┘
+┌─────────────────┐    ┌─────────────────┐
+│   前端界面      │    │   Web API       │
+│   (HTML+JS)     │    │   (FastAPI)     │
+└─────────────────┘    └─────────────────┘
+         │                       │
+         └───────────────────────┼───────────────────────┐
+                                 │                       │
+                    ┌─────────────────┐    ┌─────────────────┐
+                    │   核心处理引擎   │    │   命令行工具    │
+                    │   (Core Engine)  │    │   (CLI)         │
+                    └─────────────────┘    └─────────────────┘
                                  │
-                    ┌─────────────────┐
-                    │   核心处理引擎   │
-                    │   (Core Engine)  │
-                    └─────────────────┘
-                                 │
-    ┌────────────┬────────────────┼────────────────┬────────────┐
-    │            │                │                │            │
-┌───▼───┐  ┌───▼───┐       ┌───▼───┐       ┌───▼───┐  ┌───▼───┐
-│链接解析│  │视频下载│       │音频提取│       │语音转录│  │结果处理│
-│Parser │  │Download│       │Extract│       │Whisper│  │Format │
-└───────┘  └───────┘       └───────┘       └───────┘  └───────┘
+    ┌────────────┬───────────────┼────────────────┬────────────┐
+    │            │               │                │            │
+┌───▼───┐  ┌───▼───┐     ┌───▼───┐       ┌───▼───┐  ┌───▼───┐
+│文件上传│  │文件验证│     │音频提取│       │语音转录│  │结果处理│
+│Upload │  │Validate│     │Extract│       │Whisper│  │Format │
+└───────┘  └───────┘     └───────┘       └───────┘  └───────┘
 ```
 
 ### 2.2 技术栈选型
@@ -42,8 +42,7 @@
 #### 后端技术栈
 - **编程语言**: Python 3.8+
 - **Web框架**: FastAPI
-- **视频处理**: yt-dlp + FFmpeg
-- **音频处理**: pydub
+- **音频处理**: FFmpeg + pydub
 - **语音识别**: OpenAI Whisper
 - **异步处理**: asyncio
 - **日志系统**: loguru
@@ -55,64 +54,55 @@
 
 #### 系统依赖
 - **FFmpeg**: 音视频处理
-- **CUDA** (可选): GPU加速Whisper推理
+- **CUDA** (可选): GPU 加速 Whisper 推理
 
 ## 3. 模块设计
 
-### 3.1 链接解析模块 (parser.py)
+### 3.1 文件上传模块
 ```python
-class VideoLinkParser:
-    """视频链接解析器"""
-    
-    def parse_share_link(self, url: str) -> VideoInfo:
-        """解析分享链接，获取视频信息"""
-        
-    def extract_video_id(self, url: str, platform: str) -> str:
-        """提取视频ID"""
-        
-    def get_video_metadata(self, video_id: str, platform: str) -> dict:
-        """获取视频元数据"""
+class FileService:
+    """文件服务"""
+
+    def validate_file(self, file_path: str) -> tuple[bool, Optional[str]]:
+        """验证文件"""
+
+    def get_file_info(self, file_path: str) -> dict:
+        """获取文件信息"""
 ```
 
-**支持平台**:
-- 抖音 (douyin.com)
-- B站 (bilibili.com)
-- 快手 (kuaishou.com) - 后期扩展
-- 小红书 (xiaohongshu.com) - 后期扩展
+**支持格式**: MP4, AVI, MKV, MOV, WMV, FLV, WebM
 
-### 3.2 视频下载模块 (downloader.py)
+### 3.2 音频提取模块 (downloader.py)
 ```python
-class VideoDownloader:
-    """视频下载器"""
-    
-    def download_video(self, video_info: VideoInfo) -> str:
-        """下载视频文件"""
-        
+class AudioExtractor:
+    """音频提取器"""
+
     def extract_audio(self, video_path: str) -> str:
         """从视频中提取音频"""
-        
+
     def optimize_audio(self, audio_path: str) -> str:
         """音频预处理优化"""
 ```
 
 **功能特性**:
-- 自动选择最优质量
-- 支持音频直接提取
-- 音频格式转换和优化
+- 自动音频提取
+- 音频格式转换 (16kHz 单声道 WAV)
+- 音量标准化
+- 静音检测和去除
 
 ### 3.3 语音转录模块 (transcriber.py)
 ```python
 class SpeechTranscriber:
     """语音转录器"""
-    
+
+    def load_model(self, model: WhisperModel):
+        """加载 Whisper 模型"""
+
     def transcribe_audio(self, audio_path: str) -> TranscriptionResult:
         """转录音频为文本"""
-        
-    def transcribe_with_timestamps(self, audio_path: str) -> TimestampedTranscription:
-        """带时间戳的转录"""
-        
-    def batch_transcribe(self, audio_paths: List[str]) -> List[TranscriptionResult]:
-        """批量转录"""
+
+    def format_output(self, result: TranscriptionResult, format: OutputFormat) -> str:
+        """格式化输出"""
 ```
 
 **Whisper模型选择**:
@@ -122,150 +112,200 @@ class SpeechTranscriber:
 - **medium**: 769 MB, 高准确率
 - **large**: 1550 MB, 最高准确率
 
-### 3.4 核心引擎 (core.py)
+### 3.4 核心引擎 (engine.py)
 ```python
 class VideoTranscriptionEngine:
     """视频转录核心引擎"""
-    
-    def process_video_link(self, url: str, options: ProcessOptions) -> TranscriptionResult:
-        """处理视频链接的主流程"""
-        
-    def process_batch(self, urls: List[str], options: ProcessOptions) -> List[TranscriptionResult]:
+
+    def process_video_file(self, file_path: str, options: ProcessOptions) -> TranscriptionResult:
+        """处理本地视频文件"""
+
+    def process_batch_files(self, file_paths: List[str], options: ProcessOptions) -> BatchResult:
         """批量处理"""
 ```
 
 ## 4. 数据模型
 
-### 4.1 核心数据结构
+### 4.1 请求数据模型
 ```python
-@dataclass
-class VideoInfo:
-    """视频信息"""
-    video_id: str
-    title: str
-    platform: str
-    duration: int
-    url: str
-    thumbnail: str
+class ProcessOptions(BaseModel):
+    """处理选项"""
+    model: WhisperModel = WhisperModel.SMALL
+    language: Language = Language.AUTO
+    with_timestamps: bool = False
+    output_format: OutputFormat = OutputFormat.TXT
+    temperature: float = 0.0
+```
 
-@dataclass
-class TranscriptionResult:
+### 4.2 响应数据模型
+```python
+class TranscriptionResult(BaseModel):
     """转录结果"""
     text: str
-    confidence: float
     language: str
+    confidence: float
     segments: List[TranscriptionSegment]
     processing_time: float
-
-@dataclass
-class TranscriptionSegment:
-    """转录片段"""
-    start_time: float
-    end_time: float
-    text: str
-    confidence: float
+    whisper_model: WhisperModel
 ```
 
-## 5. API接口设计
+### 4.3 任务状态模型
+```python
+class TaskStatus(str, Enum):
+    """任务状态"""
+    PENDING = "pending"
+    EXTRACTING = "extracting"
+    TRANSCRIBING = "transcribing"
+    COMPLETED = "completed"
+    FAILED = "failed"
+```
 
-### 5.1 RESTful API
+## 5. API 接口设计
 
-#### 单个视频转录
-```http
+### 5.1 文件上传转录
+```
 POST /api/v1/transcribe
-Content-Type: application/json
+Content-Type: multipart/form-data
 
+参数:
+- file: 视频文件
+- model: Whisper 模型 (small)
+- language: 目标语言 (auto)
+- output_format: 输出格式 (txt)
+- timestamps: 是否包含时间戳 (false)
+
+响应:
 {
-    "url": "https://v.douyin.com/xxxxx",
-    "options": {
-        "model": "small",
-        "language": "auto",
-        "with_timestamps": true
+    "code": 200,
+    "message": "转录成功",
+    "data": {
+        "video_info": {...},
+        "transcription": {...}
     }
 }
 ```
 
-#### 批量视频转录
-```http
+### 5.2 批量转录
+```
 POST /api/v1/batch-transcribe
-Content-Type: application/json
+Content-Type: multipart/form-data
 
+参数:
+- files: 视频文件列表 (最多10个)
+- model: Whisper 模型
+- language: 目标语言
+- max_concurrent: 最大并发数 (3)
+
+响应:
 {
-    "urls": ["url1", "url2", "url3"],
-    "options": {
-        "model": "small",
-        "language": "auto"
+    "code": 200,
+    "message": "批量任务已创建",
+    "data": {
+        "batch_id": "xxx",
+        "total_files": 5,
+        "status": "processing"
     }
 }
 ```
 
-#### 查询处理状态
-```http
+### 5.3 任务状态查询
+```
 GET /api/v1/status/{task_id}
+
+响应:
+{
+    "code": 200,
+    "message": "查询成功",
+    "data": {
+        "task_id": "xxx",
+        "status": "completed",
+        "progress": 100,
+        "result": {...}
+    }
+}
 ```
 
-### 5.2 WebSocket API (实时进度)
-```javascript
-const ws = new WebSocket('ws://localhost:8000/ws/transcribe');
-ws.send(JSON.stringify({
-    'url': 'https://v.douyin.com/xxxxx',
-    'options': {'model': 'small'}
-}));
+## 6. 使用示例
+
+### 6.1 Python API 调用
+```python
+import requests
+
+# 上传文件转录
+with open("video.mp4", "rb") as f:
+    response = requests.post(
+        "http://localhost:8665/api/v1/transcribe",
+        files={"file": f},
+        data={"model": "small", "language": "auto"}
+    )
+    result = response.json()
+    print(result["data"]["transcription"]["text"])
 ```
 
-## 6. 性能优化
+### 6.2 批量处理
+```python
+files = [
+    ("files", open("video1.mp4", "rb")),
+    ("files", open("video2.mp4", "rb")),
+    ("files", open("video3.mp4", "rb"))
+]
 
-### 6.1 处理速度优化
-- **GPU加速**: 支持CUDA加速Whisper推理
-- **模型缓存**: 预加载Whisper模型避免重复加载
-- **异步处理**: 使用asyncio实现并发处理
-- **分段处理**: 长音频自动分段处理
+response = requests.post(
+    "http://localhost:8665/api/v1/batch-transcribe",
+    files=files,
+    data={"max_concurrent": 3}
+)
+```
 
-### 6.2 存储优化
-- **临时文件清理**: 自动清理下载的临时文件
-- **音频格式优化**: 转换为最适合识别的格式
-- **缓存机制**: 缓存已处理的结果
+## 7. 性能优化
 
-## 7. 错误处理
+### 7.1 GPU 加速
+```python
+# 自动检测 CUDA
+import torch
+if torch.cuda.is_available():
+    device = "cuda"
+else:
+    device = "cpu"
 
-### 7.1 常见错误场景
-- 链接解析失败
-- 视频下载失败
-- 音频提取失败
-- 语音识别失败
-- 网络连接问题
+# 加载模型到 GPU
+model.to(device)
+```
 
-### 7.2 错误处理策略
-- 重试机制
-- 降级方案
-- 详细错误日志
-- 用户友好的错误提示
+### 7.2 并发处理
+- 使用 Semaphore 控制并发数
+- 默认最大 3 个并发任务
+- 可根据 GPU 内存调整
 
-## 8. 安全考虑
+### 7.3 内存管理
+- 及时清理临时文件
+- 定期释放 CUDA 缓存
+- 任务完成后清理资源
 
-### 8.1 输入验证
-- URL格式验证
-- 文件大小限制
-- 请求频率限制
+## 8. 部署说明
 
-### 8.2 隐私保护
-- 本地处理，不上传音频到第三方
-- 临时文件加密存储
-- 定期清理处理痕迹
+### 8.1 环境要求
+- Python 3.8+
+- FFmpeg
+- CUDA (可选，用于 GPU 加速)
 
-## 9. 部署架构
-
-### 9.1 开发环境
+### 8.2 启动服务
 ```bash
-Python 3.8+ + pip + FFmpeg
+# 安装依赖
+pip install -r requirements.txt
+
+# 启动 API 服务
+python main.py serve
+
+# 或使用 uvicorn
+uvicorn api.main:app --host 0.0.0.0 --port 8665
 ```
 
-### 9.2 生产环境
+### 8.3 Docker 部署
 ```bash
-Docker + Nginx + Gunicorn
-```
+# 构建镜像
+docker build -f docker/Dockerfile -t video-transcriber .
 
-### 9.3 云端部署
-- 支持AWS/阿里云/腾讯云
-- 容器化部署
-- 负载均衡
+# 运行容器
+docker run -p 8665:8665 video-transcriber
+```

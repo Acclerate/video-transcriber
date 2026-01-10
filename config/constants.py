@@ -6,34 +6,6 @@
 from typing import Dict, List
 
 # ============================================================
-# 视频和音频格式
-# ============================================================
-
-SUPPORTED_VIDEO_FORMATS = {
-    ".mp4": "MP4",
-    ".avi": "AVI",
-    ".mkv": "MKV",
-    ".mov": "MOV",
-    ".wmv": "WMV",
-    ".flv": "FLV",
-    ".webm": "WebM",
-    ".m4v": "M4V",
-    ".mpeg": "MPEG",
-    ".mpg": "MPG",
-    ".mp3": "MP3",  # 也支持纯音频
-}
-
-SUPPORTED_AUDIO_FORMATS = {
-    ".mp3": "MP3",
-    ".wav": "WAV",
-    ".m4a": "M4A",
-    ".aac": "AAC",
-    ".flac": "FLAC",
-    ".ogg": "OGG",
-    ".wma": "WMA",
-}
-
-# ============================================================
 # Whisper 模型信息
 # ============================================================
 
@@ -120,7 +92,6 @@ OUTPUT_FORMAT_EXTENSIONS = list(OUTPUT_FORMATS.keys())
 # 文件大小限制
 # ============================================================
 
-MAX_FILE_SIZE_MB = 500  # 最大文件大小 500MB
 MIN_FILE_SIZE_BYTES = 1024  # 最小文件大小 1KB
 CHUNK_SIZE = 8192  # 读取文件块大小
 
@@ -184,9 +155,6 @@ ERROR_MESSAGES = {
     "model_not_loaded": "Whisper 模型未加载",
     "transcription_failed": "转录失败",
     "audio_extraction_failed": "音频提取失败",
-    "invalid_url": "无效的 URL",
-    "platform_not_supported": "不支持的平台",
-    "download_failed": "下载失败",
 }
 
 # ============================================================
@@ -222,28 +190,6 @@ API_MESSAGES = {
 }
 
 # ============================================================
-# 平台配置
-# ============================================================
-
-SUPPORTED_PLATFORMS = {
-    "douyin": {
-        "name": "抖音",
-        "domains": ["douyin.com", "iesdouyin.com"],
-        "requires_cookies": True,
-    },
-    "bilibili": {
-        "name": "B站",
-        "domains": ["bilibili.com", "b23.tv"],
-        "requires_cookies": False,
-    },
-    "youtube": {
-        "name": "YouTube",
-        "domains": ["youtube.com", "youtu.be"],
-        "requires_cookies": False,
-    },
-}
-
-# ============================================================
 # 时间格式
 # ============================================================
 
@@ -257,9 +203,6 @@ FILENAME_DATETIME_FORMAT = "%Y%m%d_%H%M%S"
 # ============================================================
 # 正则表达式模式
 # ============================================================
-
-# URL 验证正则
-URL_PATTERN = r"^https?://[^\s/$.?#].[^\s]*$"
 
 # 文件名清理正则
 INVALID_FILENAME_CHARS = r'[<>:"/\\|?*]'

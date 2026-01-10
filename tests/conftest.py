@@ -16,8 +16,8 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 from models.schemas import (
-    VideoInfo, TranscriptionResult, TranscriptionSegment,
-    Platform, WhisperModel, Language, TaskStatus
+    TranscriptionResult, TranscriptionSegment,
+    WhisperModel, Language, TaskStatus
 )
 
 
@@ -34,23 +34,6 @@ def temp_dir() -> Generator[Path, None, None]:
     """临时目录夹具"""
     with tempfile.TemporaryDirectory() as temp_dir:
         yield Path(temp_dir)
-
-
-@pytest.fixture
-def sample_video_info() -> VideoInfo:
-    """示例视频信息"""
-    return VideoInfo(
-        video_id="test_123456",
-        title="测试视频标题",
-        platform=Platform.DOUYIN,
-        duration=30.5,
-        url="https://v.douyin.com/test123",
-        thumbnail="https://example.com/thumb.jpg",
-        uploader="测试用户",
-        upload_date=None,
-        view_count=1000,
-        description="这是一个测试视频"
-    )
 
 
 @pytest.fixture
@@ -83,7 +66,7 @@ def sample_transcription_result(sample_transcription_segments) -> TranscriptionR
     """示例转录结果"""
     full_text = " ".join(segment.text for segment in sample_transcription_segments)
     avg_confidence = sum(seg.confidence for seg in sample_transcription_segments) / len(sample_transcription_segments)
-    
+
     return TranscriptionResult(
         text=full_text,
         language="zh",
@@ -92,28 +75,6 @@ def sample_transcription_result(sample_transcription_segments) -> TranscriptionR
         processing_time=12.5,
         whisper_model=WhisperModel.SMALL
     )
-
-
-@pytest.fixture
-def mock_video_parser():
-    """模拟视频解析器"""
-    parser = Mock()
-    parser.detect_platform = Mock(return_value=Platform.DOUYIN)
-    parser.validate_url = Mock(return_value=True)
-    parser.get_video_info = AsyncMock()
-    return parser
-
-
-@pytest.fixture
-def mock_video_downloader():
-    """模拟视频下载器"""
-    downloader = Mock()
-    downloader.download_video = AsyncMock(return_value="/tmp/test_video.mp4")
-    downloader.download_audio_only = AsyncMock(return_value="/tmp/test_audio.wav")
-    downloader.extract_audio = AsyncMock(return_value="/tmp/test_audio.wav")
-    downloader.optimize_audio_for_transcription = AsyncMock(return_value="/tmp/test_audio_optimized.wav")
-    downloader.cleanup_files = Mock(return_value=5)
-    return downloader
 
 
 @pytest.fixture
@@ -171,24 +132,11 @@ def sample_video_file(temp_dir) -> Path:
 
 
 @pytest.fixture
-def test_urls() -> Dict[str, str]:
-    """测试用的URL"""
-    return {
-        "douyin_valid": "https://v.douyin.com/ieFvvPLX/",
-        "douyin_invalid": "https://v.douyin.com/invalid",
-        "bilibili_valid": "https://www.bilibili.com/video/BV1234567890",
-        "bilibili_invalid": "https://www.bilibili.com/video/invalid",
-        "unsupported": "https://www.youtube.com/watch?v=test",
-        "invalid_url": "not-a-url"
-    }
-
-
-@pytest.fixture
 def api_client():
     """API客户端夹具"""
     from fastapi.testclient import TestClient
     from api.main import app
-    
+
     return TestClient(app)
 
 
@@ -203,43 +151,17 @@ def mock_env_vars(monkeypatch):
         "MAX_FILE_SIZE": "50",
         "CLEANUP_AFTER": "1800"
     }
-    
+
     for key, value in env_vars.items():
         monkeypatch.setenv(key, value)
-    
+
     return env_vars
-
-
-@pytest.fixture
-def mock_ytdl_info() -> Dict[str, Any]:
-    """模拟yt-dlp返回的视频信息"""
-    return {
-        "id": "test_video_123",
-        "title": "测试视频标题",
-        "duration": 30.5,
-        "webpage_url": "https://v.douyin.com/test123",
-        "thumbnail": "https://example.com/thumb.jpg",
-        "uploader": "测试用户",
-        "view_count": 1000,
-        "description": "这是一个测试视频",
-        "upload_date": "20240829"
-    }
 
 
 # 测试标记装饰器
 requires_network = pytest.mark.network
 requires_gpu = pytest.mark.gpu
 slow_test = pytest.mark.slow
-
-
-# 测试工具函数
-def assert_video_info_valid(video_info: VideoInfo):
-    """验证视频信息对象"""
-    assert video_info.video_id
-    assert video_info.title
-    assert video_info.platform in Platform
-    assert video_info.duration > 0
-    assert video_info.url
 
 
 def assert_transcription_result_valid(result: TranscriptionResult):
@@ -249,7 +171,7 @@ def assert_transcription_result_valid(result: TranscriptionResult):
     assert 0 <= result.confidence <= 1
     assert result.processing_time > 0
     assert result.whisper_model in WhisperModel
-    
+
     for segment in result.segments:
         assert segment.start_time >= 0
         assert segment.end_time > segment.start_time

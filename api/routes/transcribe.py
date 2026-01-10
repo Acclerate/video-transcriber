@@ -126,66 +126,6 @@ async def transcribe_file(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@transcribe_router.post("/url", response_model=TranscribeResponse)
-@limiter.limit(f"{settings.RATE_LIMIT_PER_MINUTE}/minute")
-async def transcribe_from_url(
-    url: str = Form(...),
-    model: str = Form(default=settings.DEFAULT_MODEL),
-    language: str = Form(default="auto"),
-    format: str = Form(default="txt"),
-    timestamps: bool = Form(default=False),
-    service: TranscriptionService = Depends(get_transcription_service)
-):
-    """
-    从 URL 转录视频
-
-    Args:
-        url: 视频 URL
-        model: Whisper 模型
-        language: 目标语言
-        format: 输出格式
-        timestamps: 是否包含时间戳
-        service: 转录服务
-
-    Returns:
-        TranscribeResponse: 转录结果
-    """
-    try:
-        # 验证 URL
-        from utils.common import validate_url
-        if not validate_url(url):
-            raise HTTPException(status_code=400, detail="无效的 URL")
-
-        # 准备处理选项
-        options = ProcessOptions(
-            model=WhisperModel(model),
-            language=Language(language),
-            with_timestamps=timestamps,
-            output_format=OutputFormat(format),
-            enable_gpu=settings.ENABLE_GPU,
-            temperature=settings.DEFAULT_TEMPERATURE
-        )
-
-        # 执行转录
-        result = await service.transcribe_from_url(url, options)
-
-        return TranscribeResponse(
-            success=True,
-            task_id="",
-            result=result,
-            message="转录完成"
-        )
-
-    except NotImplementedError:
-        raise HTTPException(
-            status_code=501,
-            detail="该平台的视频下载功能暂未实现"
-        )
-    except Exception as e:
-        logger.error(f"URL 转录失败: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 @transcribe_router.post("/batch")
 @limiter.limit(f"{settings.RATE_LIMIT_PER_MINUTE}/minute")
 async def transcribe_batch(

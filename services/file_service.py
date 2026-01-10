@@ -6,19 +6,19 @@
 import os
 import asyncio
 import mimetypes
+import re
 from pathlib import Path
-from typing import Optional, List, Callable
-from urllib.parse import urlparse
+from typing import Optional, Callable
 
 from loguru import logger
 
-from config import settings, SUPPORTED_VIDEO_FORMATS, SUPPORTED_AUDIO_FORMATS
+from config import settings
 
 
 class FileService:
     """
     文件服务
-    处理文件验证、下载、格式检查等
+    处理文件验证、格式检查等
     """
 
     def __init__(self, config: Optional[settings] = None):
@@ -46,7 +46,7 @@ class FileService:
             bool: 是否支持
         """
         ext = Path(file_path).suffix.lower()
-        return ext in SUPPORTED_VIDEO_FORMATS
+        return ext in self.config.VIDEO_FORMATS
 
     def is_supported_audio_file(self, file_path: str) -> bool:
         """
@@ -59,7 +59,7 @@ class FileService:
             bool: 是否支持
         """
         ext = Path(file_path).suffix.lower()
-        return ext in SUPPORTED_AUDIO_FORMATS
+        return ext in self.config.AUDIO_FORMATS
 
     def is_supported_file(self, file_path: str) -> bool:
         """
@@ -148,84 +148,6 @@ class FileService:
         }
 
     # ============================================================
-    # 文件下载
-    # ============================================================
-
-    async def download_from_url(
-        self,
-        url: str,
-        output_dir: Optional[str] = None,
-        progress_callback: Optional[Callable[[float], None]] = None
-    ) -> str:
-        """
-        从 URL 下载视频
-
-        Args:
-            url: 视频 URL
-            output_dir: 输出目录
-            progress_callback: 进度回调函数
-
-        Returns:
-            str: 下载的文件路径
-        """
-        # 识别平台
-        platform = self._identify_platform(url)
-
-        if platform == "douyin":
-            return await self._download_douyin(url, output_dir, progress_callback)
-        elif platform == "bilibili":
-            return await self._download_bilibili(url, output_dir, progress_callback)
-        elif platform == "youtube":
-            return await self._download_youtube(url, output_dir, progress_callback)
-        else:
-            raise Exception(f"不支持的平台: {url}")
-
-    def _identify_platform(self, url: str) -> Optional[str]:
-        """识别视频平台"""
-        try:
-            parsed = urlparse(url)
-            domain = parsed.netloc.lower()
-
-            if "douyin" in domain or "iesdouyin" in domain:
-                return "douyin"
-            elif "bilibili" in domain or "b23" in domain:
-                return "bilibili"
-            elif "youtube" in domain or "youtu.be" in domain:
-                return "youtube"
-            else:
-                return None
-        except Exception:
-            return None
-
-    async def _download_douyin(
-        self,
-        url: str,
-        output_dir: Optional[str],
-        progress_callback: Optional[Callable[[float], None]]
-    ) -> str:
-        """下载抖音视频"""
-        # 这里可以集成 yt-dlp 或其他下载工具
-        raise NotImplementedError("抖音视频下载功能需要额外的配置")
-
-    async def _download_bilibili(
-        self,
-        url: str,
-        output_dir: Optional[str],
-        progress_callback: Optional[Callable[[float], None]]
-    ) -> str:
-        """下载 B站视频"""
-        raise NotImplementedError("B站视频下载功能需要额外的配置")
-
-    async def _download_youtube(
-        self,
-        url: str,
-        output_dir: Optional[str],
-        progress_callback: Optional[Callable[[float], None]]
-    ) -> str:
-        """下载 YouTube 视频"""
-        raise NotImplementedError("YouTube 视频下载功能需要额外的配置")
-
-    # ============================================================
     # 文件操作
     # ============================================================
 
@@ -254,8 +176,6 @@ class FileService:
         Returns:
             str: 安全的文件名
         """
-        import re
-
         # 移除非法字符
         illegal_chars = r'[<>:"/\\|?*]'
         safe_name = re.sub(illegal_chars, '_', filename)

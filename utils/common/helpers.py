@@ -6,76 +6,8 @@ import re
 import asyncio
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List, Tuple
-from urllib.parse import urlparse, parse_qs
 
 from loguru import logger
-
-
-def validate_url(url: str) -> bool:
-    """
-    验证URL格式是否正确
-
-    Args:
-        url: 待验证的URL
-
-    Returns:
-        bool: 是否为有效URL
-    """
-    try:
-        if not url or not isinstance(url, str):
-            return False
-
-        # 补全协议
-        if not url.startswith(('http://', 'https://')):
-            url = 'https://' + url
-
-        parsed = urlparse(url)
-        return bool(parsed.netloc and parsed.scheme in ['http', 'https'])
-    except Exception:
-        return False
-
-
-def extract_domain(url: str) -> Optional[str]:
-    """
-    从URL中提取域名
-
-    Args:
-        url: URL地址
-
-    Returns:
-        Optional[str]: 域名
-    """
-    try:
-        if not url.startswith(('http://', 'https://')):
-            url = 'https://' + url
-
-        parsed = urlparse(url)
-        domain = parsed.netloc.lower()
-
-        # 移除www前缀
-        if domain.startswith('www.'):
-            domain = domain[4:]
-
-        return domain
-    except Exception:
-        return None
-
-
-def parse_query_params(url: str) -> Dict[str, List[str]]:
-    """
-    解析URL查询参数
-
-    Args:
-        url: URL地址
-
-    Returns:
-        Dict[str, List[str]]: 查询参数字典
-    """
-    try:
-        parsed = urlparse(url)
-        return parse_qs(parsed.query)
-    except Exception:
-        return {}
 
 
 def truncate_text(text: str, max_length: int = 100, suffix: str = "...") -> str:

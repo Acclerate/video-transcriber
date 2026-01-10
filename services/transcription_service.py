@@ -219,44 +219,6 @@ class TranscriptionService:
 
         return batch_result
 
-    async def transcribe_from_url(
-        self,
-        url: str,
-        options: Optional[ProcessOptions] = None,
-        progress_callback: Optional[Callable[[str, float, str], None]] = None
-    ) -> TranscriptionResult:
-        """
-        从 URL 转录视频
-
-        Args:
-            url: 视频 URL
-            options: 处理选项
-            progress_callback: 进度回调函数
-
-        Returns:
-            TranscriptionResult: 转录结果
-        """
-        # 下载视频
-        downloaded_path = await self.file_service.download_from_url(
-            url,
-            progress_callback=progress_callback
-        )
-
-        # 转录下载的文件
-        result = await self.transcribe_file(
-            file_path=downloaded_path,
-            options=options,
-            progress_callback=progress_callback
-        )
-
-        # 清理下载的文件
-        try:
-            Path(downloaded_path).unlink(missing_ok=True)
-        except Exception as e:
-            logger.warning(f"清理下载文件失败: {e}")
-
-        return result
-
     # ============================================================
     # 私有方法
     # ============================================================
