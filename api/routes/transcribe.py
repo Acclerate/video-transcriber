@@ -6,7 +6,7 @@
 from typing import Optional, List
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, BackgroundTasks, Request
 from fastapi.responses import JSONResponse
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -48,6 +48,7 @@ def get_file_service() -> FileService:
 @transcribe_router.post("/file", response_model=TranscribeResponse)
 @limiter.limit(f"{settings.RATE_LIMIT_PER_MINUTE}/minute")
 async def transcribe_file(
+    request: Request,
     file: UploadFile = File(...),
     model: str = Form(default=settings.DEFAULT_MODEL),
     language: str = Form(default="auto"),
@@ -123,10 +124,9 @@ async def transcribe_file(
         background_tasks.add_task(cleanup_file, file_path)
 
         return TranscribeResponse(
-            success=True,
-            task_id="",
-            result=result,
-            message="转录完成"
+            code=200,
+            message="转录完成",
+            data={"transcription": result.model_dump()}
         )
 
     except Exception as e:
@@ -137,6 +137,7 @@ async def transcribe_file(
 @transcribe_router.post("/batch")
 @limiter.limit(f"{settings.RATE_LIMIT_PER_MINUTE}/minute")
 async def transcribe_batch(
+    request: Request,
     files: List[UploadFile] = File(..., description="要转录的视频文件列表"),
     model: str = Form(default=settings.DEFAULT_MODEL),
     language: str = Form(default="auto"),
@@ -240,7 +241,7 @@ async def transcribe_batch(
             background_tasks.add_task(cleanup_batch_files)
 
         return {
-            "success": True,
+            "code": 200,
             "data": result,
             "message": f"批量处理完成: {result.get('success', 0)}/{result.get('total', 0)} 成功"
         }
@@ -282,8 +283,9 @@ async def get_task_status(
         raise HTTPException(status_code=404, detail="任务不存在")
 
     return {
-        "success": True,
-        "data": task.model_dump()
+        "code": 200,
+        "data": task.model_dump(),
+        "message": "查询成功"
     }
 
 
@@ -359,14 +361,15 @@ async def list_tasks(
             task_list.append(task_dict)
 
         return {
-            "success": True,
+            "code": 200,
             "data": {
                 "tasks": task_list,
                 "total": total_count,
                 "limit": limit,
                 "offset": offset,
                 "has_more": offset + len(task_list) < total_count
-            }
+            },
+            "message": "查询成功"
         }
 
     except HTTPException:
@@ -391,6 +394,7 @@ async def get_statistics(
     """
     stats = service.get_statistics()
     return {
-        "success": True,
-        "data": stats
+        "code": 200,
+        "data": stats,
+        "message": "查询成功"
     }

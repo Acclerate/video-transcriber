@@ -10,7 +10,7 @@ from collections import defaultdict
 
 from loguru import logger
 
-from config import settings
+from config import settings, Settings
 from models.schemas import TaskInfo, TaskStatus, BatchTaskInfo
 
 
@@ -20,7 +20,7 @@ class TaskService:
     管理所有转录任务的状态、生命周期和统计信息
     """
 
-    def __init__(self, config: Optional[settings] = None):
+    def __init__(self, config: Optional[Settings] = None):
         """
         初始化任务服务
 

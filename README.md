@@ -2,7 +2,7 @@
 
 一个强大的视频文件转文本工具，基于OpenAI Whisper实现高精度语音识别。
 
-![Python](https://img.shields.io/badge/python-3.8+-blue.svg)
+![Python](https://img.shields.io/badge/python-3.10%20%28recommended%29-blue.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
 ![Whisper](https://img.shields.io/badge/whisper-OpenAI-orange.svg)
 
@@ -24,10 +24,26 @@
 
 ### 环境要求
 
-- Python 3.8+
+- **Python 3.10.x** (强烈推荐)
 - FFmpeg (用于音视频处理)
 - 4GB+ RAM (推荐8GB以上)
 - GPU (可选，用于加速)
+
+#### Python版本说明
+
+| 依赖包 | 版本 | Python支持 |
+|--------|------|-----------|
+| PyTorch | >=1.13.0 | 3.8-3.11 ❌不支持3.12+ |
+| Whisper | 20231117 | 3.8+ (受PyTorch限制) |
+| FastAPI | 0.104.1 | 3.7+ |
+| Pydantic | 2.5.2 | 3.8+ |
+| librosa | 0.10.1 | 3.8+ |
+
+**推荐版本**:
+- ⭐ **Python 3.10.x** - 首选，完美兼容所有依赖
+- ⭐⭐ Python 3.11.x - 次选，大部分依赖支持
+- ⚠️ Python 3.8/3.9 - 最低要求，不推荐
+- ❌ Python 3.12+ - PyTorch 1.13 不兼容
 
 ### 安装
 
@@ -39,8 +55,15 @@ cd video-transcriber
 
 2. **安装依赖**
 ```bash
-# 创建虚拟环境
-python -m venv venv
+# 确保使用 Python 3.10 (推荐)
+python --version
+
+# 创建虚拟环境 (使用 Python 3.10)
+python3.10 -m venv venv
+# 或使用 conda (推荐)
+# conda create -n video-transcriber python=3.10
+# conda activate video-transcriber
+
 source venv/bin/activate  # Windows: venv\Scripts\activate
 
 # 安装Python依赖
@@ -53,8 +76,26 @@ sudo apt install ffmpeg
 # 安装FFmpeg (macOS)
 brew install ffmpeg
 
-# 安装FFmpeg (Windows)
-# 下载并安装: https://ffmpeg.org/download.html
+# 安装FFmpeg (Windows 10/11)
+# 方法1: 使用 winget (推荐, Windows 11/10 最新版)
+winget install ffmpeg
+# 或使用 Chocolatey
+# choco install ffmpeg
+
+# 方法2: 使用 Scoop
+scoop install ffmpeg
+
+# 方法3: 手动安装
+# 1. 下载: https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip
+# 2. 解压到 C:\ffmpeg
+# 3. 添加 C:\ffmpeg\bin 到系统 PATH 环境变量
+#    - 右键"此电脑" -> 属性 -> 高级系统设置 -> 环境变量
+#    - 在"系统变量"中找到 Path, 点击编辑, 添加 C:\ffmpeg\bin
+# 4. 重启终端, 验证安装: ffmpeg -version
+
+# 方法4: 使用项目自带 (无需系统安装)
+# 项目已包含 ffmpeg_bin 目录, 程序会自动使用
+# 如需手动指定: 设置环境变量 FFMPEG_PATH=D:\privategit\github\video-transcriber\ffmpeg_bin\ffmpeg.exe
 ```
 
 3. **配置环境变量** (可选)

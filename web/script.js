@@ -304,7 +304,7 @@ class VideoTranscriberUI {
             formData.append('with_timestamps', document.getElementById('timestamps').checked);
             formData.append('output_format', document.getElementById('outputFormat').value);
 
-            const response = await fetch(`${this.apiBaseUrl}/api/v1/transcribe`, {
+            const response = await fetch(`${this.apiBaseUrl}/api/v1/transcribe/file`, {
                 method: 'POST',
                 body: formData
             });
@@ -347,7 +347,7 @@ class VideoTranscriberUI {
             formData.append('language', 'auto');
             formData.append('max_concurrent', document.getElementById('maxConcurrent').value);
 
-            const response = await fetch(`${this.apiBaseUrl}/api/v1/batch-transcribe`, {
+            const response = await fetch(`${this.apiBaseUrl}/api/v1/transcribe/batch`, {
                 method: 'POST',
                 body: formData
             });

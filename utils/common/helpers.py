@@ -6,8 +6,60 @@ import re
 import asyncio
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List, Tuple
+from urllib.parse import urlparse, parse_qs
 
 from loguru import logger
+
+
+def validate_url(url: str) -> bool:
+    """
+    验证 URL 是否有效
+
+    Args:
+        url: 待验证的 URL
+
+    Returns:
+        bool: URL 是否有效
+    """
+    try:
+        result = urlparse(url)
+        return all([result.scheme, result.netloc])
+    except Exception:
+        return False
+
+
+def extract_domain(url: str) -> str:
+    """
+    从 URL 中提取域名
+
+    Args:
+        url: URL 字符串
+
+    Returns:
+        str: 域名
+    """
+    try:
+        parsed = urlparse(url)
+        return parsed.netloc
+    except Exception:
+        return ""
+
+
+def parse_query_params(url: str) -> Dict[str, List[str]]:
+    """
+    从 URL 中解析查询参数
+
+    Args:
+        url: URL 字符串
+
+    Returns:
+        Dict[str, List[str]]: 查询参数字典
+    """
+    try:
+        parsed = urlparse(url)
+        return parse_qs(parsed.query)
+    except Exception:
+        return {}
 
 
 def truncate_text(text: str, max_length: int = 100, suffix: str = "...") -> str:

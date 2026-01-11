@@ -12,7 +12,7 @@ from typing import Optional, Callable
 
 from loguru import logger
 
-from config import settings
+from config import settings, Settings
 
 
 class FileService:
@@ -21,7 +21,7 @@ class FileService:
     处理文件验证、格式检查等
     """
 
-    def __init__(self, config: Optional[settings] = None):
+    def __init__(self, config: Optional[Settings] = None):
         """
         初始化文件服务
 

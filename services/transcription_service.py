@@ -12,7 +12,7 @@ from typing import List, Optional, Dict, Any, Callable
 
 from loguru import logger
 
-from config import settings
+from config import settings, Settings
 from models.schemas import (
     TranscriptionResult, TaskInfo, TaskStatus,
     ProcessOptions, WhisperModel, Language, OutputFormat
@@ -29,7 +29,7 @@ class TranscriptionService:
     协调音频提取和语音转录的完整流程
     """
 
-    def __init__(self, config: Optional[settings] = None):
+    def __init__(self, config: Optional[Settings] = None):
         """
         初始化转录服务
 

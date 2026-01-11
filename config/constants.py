@@ -94,6 +94,7 @@ OUTPUT_FORMAT_EXTENSIONS = list(OUTPUT_FORMATS.keys())
 
 MIN_FILE_SIZE_BYTES = 1024  # 最小文件大小 1KB
 CHUNK_SIZE = 8192  # 读取文件块大小
+DEFAULT_CHUNK_SIZE = CHUNK_SIZE  # 别名，用于向后兼容
 
 # ============================================================
 # 超时和间隔设置
