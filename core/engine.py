@@ -132,10 +132,10 @@ class VideoTranscriptionEngine:
                 total_progress = 50 + (progress * 0.45)
                 update_progress(total_progress, "正在进行语音识别...")
 
-            # 创建独立的转录器实例，避免全局单例竞态条件
-            from .transcriber import create_transcriber
-            transcriber = create_transcriber(
-                model_name=options.model,
+            # 使用 SenseVoice 转录器
+            from .sensevoice_transcriber import create_sensevoice_transcriber
+            transcriber = create_sensevoice_transcriber(
+                model_name=options.model.value if hasattr(options.model, 'value') else str(options.model),
                 model_cache_dir=str(self.temp_dir / "models_cache")
             )
 

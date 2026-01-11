@@ -50,9 +50,9 @@ class Settings(BaseSettings):
     RATE_LIMIT_PER_HOUR: int = 1000
 
     # ============================================================
-    # Whisper 配置
+    # Whisper/SenseVoice 配置
     # ============================================================
-    DEFAULT_MODEL: str = "small"
+    DEFAULT_MODEL: str = "sensevoice-small"  # 使用 SenseVoice Small (多语言，中文优化)
     ENABLE_GPU: bool = True
     MODEL_CACHE_DIR: str = "./models_cache"
 
@@ -191,8 +191,8 @@ class Settings(BaseSettings):
     @field_validator("DEFAULT_MODEL")
     @classmethod
     def validate_model(cls, v: str) -> str:
-        """验证 Whisper 模型"""
-        valid_models = ["tiny", "base", "small", "medium", "large"]
+        """验证语音识别模型"""
+        valid_models = ["sensevoice-small"]
         if v not in valid_models:
             raise ValueError(f"DEFAULT_MODEL must be one of {valid_models}")
         return v

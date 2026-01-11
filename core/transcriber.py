@@ -115,16 +115,51 @@ class SpeechTranscriber:
     
     def _load_model_sync(self) -> whisper.Whisper:
         """同步加载模型"""
+        import time
+
         # 设置模型下载路径
         os.environ['WHISPER_CACHE_DIR'] = self.model_cache_dir
-        
+
+        # 检查模型是否已缓存
+        model_path = os.path.join(self.model_cache_dir, f"{self.model_name.value}.pt")
+
+        if not os.path.exists(model_path):
+            logger.info(f"模型文件不存在，将从网络下载: {self.model_name.value}")
+            logger.info("支持源: ModelScope(国内), HuggingFace, OpenAI")
+
+            # 使用自定义下载器
+            try:
+                from utils.model_downloader import download_whisper_model
+
+                def progress_callback(percent):
+                    if percent % 20 == 0:  # 每20%显示一次
+                        logger.info(f"下载进度: {percent:.0f}%")
+
+                download_whisper_model(
+                    model_name=self.model_name.value,
+                    cache_dir=self.model_cache_dir,
+                    source="auto",
+                    progress_callback=progress_callback
+                )
+                logger.info("模型下载完成")
+
+            except Exception as e:
+                logger.warning(f"自定义下载失败，使用默认方式: {e}")
+                logger.info("如果网络问题持续，请手动下载模型文件")
+
+        start_time = time.time()
+
         # 加载模型
+        logger.info(f"开始加载模型 {self.model_name.value} 到 {self.device}...")
         model = whisper.load_model(
-            self.model_name.value, 
+            self.model_name.value,
             device=self.device,
             download_root=self.model_cache_dir
         )
-        
+
+        load_time = time.time() - start_time
+        logger.info(f"模型加载完成 (耗时 {load_time:.2f} 秒)")
+
         return model
     
     async def transcribe_audio(

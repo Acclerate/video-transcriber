@@ -53,6 +53,7 @@ git clone https://github.com/Acclerate/video-transcriber.git
 cd video-transcriber
 ```
 
+
 2. **安装依赖**
 ```bash
 # 确保使用 Python 3.10 (推荐)
@@ -98,21 +99,48 @@ scoop install ffmpeg
 # 如需手动指定: 设置环境变量 FFMPEG_PATH=D:\privategit\github\video-transcriber\ffmpeg_bin\ffmpeg.exe
 ```
 
-3. **配置环境变量** (可选)
+3. **安装 SenseVoice 依赖**
 ```bash
-# 复制配置模板
-cp .env.example .env
-
-# 根据需要编辑配置
-nano .env
+# 安装 FunASR 和 ModelScope
+pip install funasr modelscope
 ```
 
-4. **启动服务**
+4. **下载 SenseVoice 模型**
+```bash
+# 从 ModelScope（阿里云）下载 SenseVoice 模型
+python main.py download-model sensevoice-small
+
+# 查看所有可用命令
+python main.py --help
+```
+
+5. **启动服务**
 ```bash
 # 启动Web服务
 python main.py serve
 
 # 访问 http://localhost:8665
+```
+
+### 快速安装（Windows）
+
+如果您使用 Windows 和 conda，可以按照以下步骤快速安装：
+
+```powershell
+# 第一步：激活环境
+conda activate video-transcriber
+
+# 第二步：安装依赖
+cd D:\privategit\github\video-transcriber
+
+# 安装 SenseVoice 依赖
+pip install funasr modelscope
+
+# 第三步：下载 SenseVoice 模型
+python main.py download-model sensevoice-small
+
+# 第四步：启动服务
+python main.py serve
 ```
 
 ## 📖 使用方法

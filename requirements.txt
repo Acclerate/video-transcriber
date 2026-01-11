@@ -10,6 +10,9 @@ pydub==0.25.1
 
 # Speech Recognition
 openai-whisper==20231117
+# SenseVoice (funasr) - Alibaba DAMO multilingual ASR
+funasr>=1.0.0
+modelscope>=1.0.0
 torch>=1.13.0
 torchaudio>=0.13.0
 

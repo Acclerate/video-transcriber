@@ -21,13 +21,9 @@ class TaskStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
-class WhisperModel(str, Enum):
-    """Whisper模型类型"""
-    TINY = "tiny"
-    BASE = "base"
-    SMALL = "small"
-    MEDIUM = "medium"
-    LARGE = "large"
+class TranscriptionModel(str, Enum):
+    """语音识别模型类型"""
+    SENSEVOICE_SMALL = "sensevoice-small"  # SenseVoice多语言模型，中文优化
 
 
 class OutputFormat(str, Enum):

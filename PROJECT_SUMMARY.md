@@ -2,6 +2,8 @@
 
 ## 📋 项目概述
 
+git config --global --unset http.https://github.com.proxy 
+
 Video Transcriber 是一个本地视频文件转文本工具，支持上传本地视频文件进行语音识别和转录。
 
 ## ✅ 完成的功能模块

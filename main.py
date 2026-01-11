@@ -506,6 +506,70 @@ def serve(host, port, reload):
         console.print(f"[bold red]服务启动失败:[/bold red] {e}")
 
 
+@cli.command()
+@click.argument('model', default='sensevoice-small', type=click.Choice(['sensevoice-small']))
+@click.option('--source', default='modelscope', type=click.Choice(['modelscope']), help='下载源 (ModelScope)')
+def download_model(model, source):
+    """预下载 SenseVoice 语音识别模型
+
+    使用 SenseVoice Small (多语言语音识别，中文优化)
+    下载源: ModelScope 阿里云
+    """
+    import time
+    from utils.model_downloader import download_model, list_available_models
+    from config import settings
+
+    console.print(f"\n[bold cyan]开始下载 SenseVoice {model.upper()} 模型...[/bold cyan]\n")
+
+    # 显示模型信息
+    models_info = list_available_models()
+    if model in models_info:
+        console.print(f"模型大小: {models_info[model]['size']}")
+        console.print(f"说明: {models_info[model]['description']}")
+
+    console.print(f"\n下载源: [cyan]ModelScope 阿里云[/cyan]")
+    console.print(f"缓存目录: {settings.MODEL_CACHE_DIR}\n")
+
+    start_time = time.time()
+
+    try:
+        # 使用下载器下载模型
+        with console.status("[bold yellow]正在下载模型，请稍候...[/bold yellow]") as status:
+            def progress_callback(percent):
+                status.update(f"[bold yellow]正在下载模型... {percent:.0f}%[/bold yellow]")
+
+            filepath = download_model(
+                model_name=model,
+                cache_dir=settings.MODEL_CACHE_DIR,
+                source=source,
+                progress_callback=progress_callback
+            )
+
+        elapsed = time.time() - start_time
+
+        console.print(f"\n[bold green]✓ 模型下载完成![/bold green]")
+        console.print(f"  模型: {model.upper()}")
+        console.print(f"  路径: {filepath}")
+        console.print(f"  耗时: {elapsed:.2f} 秒\n")
+
+        # 显示模型文件信息
+        model_path = settings.MODEL_CACHE_DIR
+        if os.path.exists(model_path):
+            console.print("[cyan]已缓存的模型:[/cyan]")
+            for file in os.listdir(model_path):
+                if file.endswith(('.pt', '.bin')):
+                    file_size = os.path.getsize(os.path.join(model_path, file)) / (1024 * 1024)
+                    console.print(f"  • {file}: {file_size:.1f} MB")
+
+    except Exception as e:
+        console.print(f"\n[bold red]✗ 模型下载失败:[/bold red] {e}\n")
+        console.print("[yellow]提示:[/yellow]")
+        console.print("  1. 检查网络连接")
+        console.print("  2. 确保已安装 modelscope: pip install modelscope")
+        console.print("  3. 访问 https://www.modelscope.cn/models/iic/SenseVoiceSmall\n")
+        sys.exit(1)
+
+
 if __name__ == "__main__":
     try:
         cli()
