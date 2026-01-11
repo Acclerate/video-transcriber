@@ -5,6 +5,7 @@ WebSocket处理模块
 
 import json
 import asyncio
+import time
 from typing import Dict, Set
 from fastapi import WebSocket, WebSocketDisconnect
 from loguru import logger
@@ -19,38 +20,88 @@ from utils import validate_url
 
 class WebSocketManager:
     """WebSocket连接管理器"""
-    
-    def __init__(self):
+
+    # 默认心跳超时时间（秒）
+    HEARTBEAT_TIMEOUT = 300  # 5分钟无活动则断开
+
+    def __init__(self, heartbeat_timeout: int = None):
         # 活跃连接
         self.active_connections: Set[WebSocket] = set()
         # 任务订阅映射
         self.task_subscriptions: Dict[str, Set[WebSocket]] = {}
+        # 连接最后活动时间
+        self.connection_last_activity: Dict[WebSocket, float] = {}
+        # 心跳超时时间
+        self.heartbeat_timeout = heartbeat_timeout or self.HEARTBEAT_TIMEOUT
+
+        # 启动心跳检查任务
+        self._heartbeat_task = None
     
     async def connect(self, websocket: WebSocket) -> bool:
         """接受WebSocket连接"""
         try:
             await websocket.accept()
             self.active_connections.add(websocket)
+            self.connection_last_activity[websocket] = time.time()
+
+            # 启动心跳检查任务
+            if self._heartbeat_task is None:
+                self._heartbeat_task = asyncio.create_task(self._heartbeat_checker())
+
             logger.info(f"WebSocket连接建立: {websocket.client}")
             return True
         except Exception as e:
             logger.error(f"WebSocket连接失败: {e}")
             return False
-    
+
     def disconnect(self, websocket: WebSocket):
         """断开WebSocket连接"""
         try:
             self.active_connections.discard(websocket)
-            
+
             # 清理任务订阅
             for task_id, subscribers in list(self.task_subscriptions.items()):
                 subscribers.discard(websocket)
                 if not subscribers:
                     del self.task_subscriptions[task_id]
-            
+
+            # 清理活动时间记录
+            self.connection_last_activity.pop(websocket, None)
+
             logger.info(f"WebSocket连接断开: {websocket.client}")
         except Exception as e:
             logger.error(f"WebSocket断开处理失败: {e}")
+
+    def update_activity(self, websocket: WebSocket):
+        """更新连接活动时间"""
+        self.connection_last_activity[websocket] = time.time()
+
+    async def _heartbeat_checker(self):
+        """心跳检查任务"""
+        while True:
+            try:
+                await asyncio.sleep(60)  # 每分钟检查一次
+                current_time = time.time()
+
+                # 检查超时连接
+                timeout_connections = []
+                for websocket, last_activity in list(self.connection_last_activity.items()):
+                    if current_time - last_activity > self.heartbeat_timeout:
+                        timeout_connections.append(websocket)
+
+                # 断开超时连接
+                for websocket in timeout_connections:
+                    logger.warning(f"WebSocket连接超时，断开: {websocket.client}")
+                    try:
+                        await websocket.close(code=1000, reason="heartbeat timeout")
+                    except Exception:
+                        pass
+                    self.disconnect(websocket)
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"心跳检查失败: {e}")
     
     async def send_message(self, websocket: WebSocket, message: WSMessage):
         """发送消息到指定WebSocket"""
@@ -183,14 +234,14 @@ async def handle_transcribe_request(websocket: WebSocket, data: dict):
         url = data.get("url")
         if not url:
             raise ValueError("缺少视频链接")
-        
+
         if not validate_url(url):
             raise ValueError("无效的视频链接")
-        
+
         # 解析选项
         options_data = data.get("options", {})
         options = ProcessOptions(**options_data)
-        
+
         # 创建进度回调
         def progress_callback(task_id: str, progress: float, message: str):
             asyncio.create_task(ws_manager.send_message(websocket, WSProgressMessage(
@@ -201,20 +252,20 @@ async def handle_transcribe_request(websocket: WebSocket, data: dict):
                     "message": message
                 }
             )))
-        
+
         # 发送开始消息
         await ws_manager.send_message(websocket, WSProgressMessage(
             type=WSMessageType.PROGRESS,
             data={"message": "开始处理视频..."}
         ))
-        
+
         # 执行转录
         result = await transcription_engine.process_video_url(
             url=url,
             options=options,
             progress_callback=progress_callback
         )
-        
+
         # 发送结果
         await ws_manager.send_message(websocket, WSResultMessage(
             type=WSMessageType.RESULT,
@@ -225,7 +276,18 @@ async def handle_transcribe_request(websocket: WebSocket, data: dict):
                 "processing_time": result.processing_time
             }
         ))
-        
+
+    except NotImplementedError as e:
+        # URL下载功能未实现
+        logger.warning(f"URL处理请求被拒绝: {e}")
+        await ws_manager.send_message(websocket, WSErrorMessage(
+            type=WSMessageType.ERROR,
+            data={
+                "error": "URL视频处理功能暂未启用",
+                "details": "请使用文件上传方式处理视频",
+                "suggestion": "通过 Web 界面或 POST /api/v1/transcribe/file 上传本地视频文件"
+            }
+        ))
     except Exception as e:
         logger.error(f"WebSocket转录请求处理失败: {e}")
         await ws_manager.send_message(websocket, WSErrorMessage(
@@ -238,7 +300,7 @@ async def websocket_endpoint(websocket: WebSocket):
     """WebSocket端点处理函数"""
     if not await ws_manager.connect(websocket):
         return
-    
+
     try:
         # 发送欢迎消息
         welcome_message = WSMessage(
@@ -246,13 +308,16 @@ async def websocket_endpoint(websocket: WebSocket):
             data={"message": "WebSocket连接成功"}
         )
         await ws_manager.send_message(websocket, welcome_message)
-        
+
         # 消息循环
         while True:
             try:
                 # 接收消息
                 raw_message = await websocket.receive_text()
-                
+
+                # 更新活动时间
+                ws_manager.update_activity(websocket)
+
                 # 解析JSON消息
                 try:
                     message = json.loads(raw_message)
@@ -262,10 +327,10 @@ async def websocket_endpoint(websocket: WebSocket):
                         data={"error": "无效的JSON格式"}
                     ))
                     continue
-                
+
                 # 处理消息
                 await handle_websocket_message(websocket, message)
-                
+
             except WebSocketDisconnect:
                 logger.info("WebSocket客户端主动断开连接")
                 break
@@ -275,7 +340,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     type=WSMessageType.ERROR,
                     data={"error": f"消息处理错误: {str(e)}"}
                 ))
-    
+
     except Exception as e:
         logger.error(f"WebSocket处理异常: {e}")
     finally:

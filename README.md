@@ -16,6 +16,9 @@
 - 🎵 **智能音频**: 自动提取和优化音频质量
 - 📝 **多种格式**: 支持JSON、TXT、SRT、VTT输出
 - 🔄 **实时状态**: 实时显示处理进度
+- 🧩 **智能分块**: 长音频自动分段处理，避免重复/卡顿
+- 🔄 **自动重试**: 网络或临时错误自动重试
+- 🇨🇳 **中文优化**: 默认中文转录，避免误识别为英语
 
 ## 🚀 快速开始
 
@@ -54,10 +57,21 @@ brew install ffmpeg
 # 下载并安装: https://ffmpeg.org/download.html
 ```
 
-3. **启动服务**
+3. **配置环境变量** (可选)
+```bash
+# 复制配置模板
+cp .env.example .env
+
+# 根据需要编辑配置
+nano .env
+```
+
+4. **启动服务**
 ```bash
 # 启动Web服务
 python main.py serve
+
+# 访问 http://localhost:8665
 ```
 
 ## 📖 使用方法
@@ -73,7 +87,7 @@ python main.py serve
 
 3. 使用方式:
    - **单个转录**: 上传视频文件，选择模型和语言，点击开始转录
-   - **批量转录**: 一次上传多个视频文件（最多10个），自动批量处理
+   - **批量转录**: 一次上传多个视频文件（最多20个），自动批量处理
 
 ### API 使用
 
@@ -89,14 +103,13 @@ uvicorn api.main:app --host 0.0.0.0 --port 8665
 import requests
 
 # 单个文件转录
-files = {"file": open("video.mp4", "rb")}
+files = {"files": open("video.mp4", "rb")}
 data = {
     "model": "small",
-    "language": "auto",
-    "with_timestamps": True,
-    "output_format": "json"
+    "language": "zh",  # 中文
+    "format": "json"
 }
-response = requests.post("http://localhost:8665/api/v1/transcribe", files=files, data=data)
+response = requests.post("http://localhost:8665/api/v1/transcribe/file", files=files, data=data)
 
 result = response.json()
 print(result["data"]["transcription"]["text"])
@@ -105,10 +118,10 @@ print(result["data"]["transcription"]["text"])
 files = [("files", open(f"video{i}.mp4", "rb")) for i in range(3)]
 data = {
     "model": "small",
-    "language": "auto",
-    "max_concurrent": 3
+    "language": "zh",
+    "max_concurrent": "2"
 }
-response = requests.post("http://localhost:8665/api/v1/batch-transcribe", files=files, data=data)
+response = requests.post("http://localhost:8665/api/v1/transcribe/batch", files=files, data=data)
 ```
 
 ### 命令行使用
@@ -120,13 +133,16 @@ python main.py transcribe /path/to/video.mp4
 # 指定Whisper模型
 python main.py transcribe /path/to/video.mp4 --model small
 
+# 指定语言
+python main.py transcribe /path/to/video.mp4 --language zh
+
 # 包含时间戳
 python main.py transcribe /path/to/video.mp4 --timestamps
 
 # 批量处理
 python main.py batch file_list.txt
 
-# 指定输出格式
+# 指定输出格式 (txt/json/srt/vtt)
 python main.py transcribe /path/to/video.mp4 --format srt
 
 # 查看系统信息
@@ -138,6 +154,87 @@ python main.py models
 
 ## 🛠️ 配置选项
 
+### 环境变量配置
+
+创建 `.env` 文件（参考 `.env.example`）:
+
+```env
+# ============================================================
+# 服务配置
+# ============================================================
+HOST=0.0.0.0
+PORT=8665
+DEBUG=false
+
+# ============================================================
+# Whisper 模型配置
+# ============================================================
+# 默认模型: tiny, base, small, medium, large
+DEFAULT_MODEL=small
+
+# 默认转录语言: zh(中文), en(英语), ja(日语), ko(韩语), auto(自动检测)
+# 默认使用中文以避免 Whisper 错误识别为英语的问题
+DEFAULT_LANGUAGE=zh
+
+# 音频分块处理配置
+# 长音频分段处理可避免 Whisper 的重复/卡顿问题
+ENABLE_AUDIO_CHUNKING=true
+CHUNK_DURATION_SECONDS=180       # 每块3分钟
+CHUNK_OVERLAP_SECONDS=2           # 块之间重叠2秒
+MIN_DURATION_FOR_CHUNKING=300     # 超过5分钟的音频才启用分块
+
+# 是否启用GPU加速
+ENABLE_GPU=true
+
+# 模型缓存目录
+MODEL_CACHE_DIR=./models_cache
+
+# ============================================================
+# 文件配置
+# ============================================================
+# 临时文件目录
+TEMP_DIR=./temp
+
+# 最大文件大小 (MB)
+MAX_FILE_SIZE=500
+
+# 清理临时文件间隔 (秒)
+CLEANUP_AFTER=3600
+
+# ============================================================
+# 日志配置
+# ============================================================
+# 日志级别: DEBUG, INFO, WARNING, ERROR
+LOG_LEVEL=INFO
+
+# 日志文件路径
+LOG_FILE=./logs/app.log
+
+# 是否输出到控制台
+LOG_TO_CONSOLE=true
+
+# ============================================================
+# 任务配置
+# ============================================================
+# 最大并发任务数
+MAX_CONCURRENT_TASKS=3
+
+# 任务超时时间 (秒)
+TASK_TIMEOUT=3600
+
+# ============================================================
+# API 配置
+# ============================================================
+# API 密钥 (可选，用于认证)
+API_KEY=
+
+# 请求频率限制 (请求/分钟)
+RATE_LIMIT_PER_MINUTE=60
+
+# CORS 允许的源 (生产环境请设置具体域名)
+CORS_ORIGINS=["*"]
+```
+
 ### Whisper模型选择
 
 | 模型 | 大小 | 速度 | 准确率 | 推荐场景 |
@@ -147,6 +244,16 @@ python main.py models
 | small | 244MB | 中等 | 很好 | **推荐** |
 | medium | 769MB | 慢 | 优秀 | 高质量需求 |
 | large | 1550MB | 最慢 | 最佳 | 专业场景 |
+
+### 支持的语言
+
+| 语言代码 | 语言 | 语言代码 | 语言 |
+|----------|------|----------|------|
+| zh | 中文 | es | 西班牙语 |
+| en | 英语 | fr | 法语 |
+| ja | 日语 | de | 德语 |
+| ko | 韩语 | ru | 俄语 |
+| auto | 自动检测 | - | - |
 
 ### 支持的视频格式
 
@@ -160,60 +267,102 @@ python main.py models
 | FLV | .flv | ✅ |
 | WebM | .webm | ✅ |
 
-### 环境变量配置
+### 支持的音频格式
 
-创建 `.env` 文件:
-
-```env
-# 服务配置
-HOST=0.0.0.0
-PORT=8665
-DEBUG=false
-
-# Whisper配置
-DEFAULT_MODEL=small
-ENABLE_GPU=true
-
-# 文件配置
-TEMP_DIR=./temp
-MAX_FILE_SIZE=500MB
-CLEANUP_AFTER=3600
-
-# 日志配置
-LOG_LEVEL=INFO
-LOG_FILE=./logs/app.log
-
-# CORS配置
-CORS_ORIGINS=*
-```
+| 格式 | 扩展名 | 状态 |
+|------|--------|------|
+| MP3 | .mp3 | ✅ |
+| WAV | .wav | ✅ |
+| M4A | .m4a | ✅ |
+| AAC | .aac | ✅ |
+| FLAC | .flac | ✅ |
+| OGG | .ogg | ✅ |
 
 ## 📁 项目结构
 
 ```
 video-transcriber/
-├── 📄 README.md
-├── 📄 requirements.txt
-├── 📄 main.py                  # 命令行入口
-├── 📁 api/                     # Web API
-│   ├── 📄 main.py             # FastAPI应用
-│   └── 📄 websocket.py        # WebSocket处理
-├── 📁 core/                    # 核心模块
-│   ├── 📄 __init__.py
-│   ├── 📄 engine.py           # 核心引擎
-│   ├── 📄 downloader.py       # 音频提取
-│   └── 📄 transcriber.py      # 语音转录
-├── 📁 models/                  # 数据模型
-│   ├── 📄 __init__.py
-│   └── 📄 schemas.py          # Pydantic模型
-├── 📁 utils/                   # 工具函数
-│   ├── 📄 __init__.py
-│   ├── 📄 logger.py           # 日志工具
-│   └── 📄 helpers.py          # 辅助函数
-├── 📁 web/                     # Web前端
+├── 📄 README.md                  # 项目说明
+├── 📄 CODE_REVIEW_REPORT.md      # 代码审查报告
+├── 📄 requirements.txt           # Python依赖
+├── 📄 .env.example               # 配置模板
+├── 📄 main.py                    # 命令行入口
+├── 📁 api/                       # Web API层
+│   ├── 📄 main.py                # FastAPI应用
+│   ├── 📁 routes/                # API路由
+│   │   ├── health.py             # 健康检查
+│   │   └── transcribe.py         # 转录接口
+│   └── 📄 websocket.py           # WebSocket处理
+├── 📁 core/                      # 核心业务层
+│   ├── 📄 engine.py              # 转录引擎
+│   ├── 📄 transcriber.py         # 语音转录器
+│   └── 📄 downloader.py          # 音频提取器
+├── 📁 services/                  # 服务层
+│   ├── 📄 transcription_service.py
+│   ├── 📄 file_service.py
+│   └── 📄 task_service.py
+├── 📁 models/                    # 数据模型层
+│   └── 📄 schemas.py             # Pydantic模型
+├── 📁 config/                    # 配置管理
+│   ├── 📄 settings.py            # 应用配置
+│   └── 📄 constants.py           # 常量定义
+├── 📁 utils/                     # 工具函数
+│   ├── 📁 audio/                 # 音频工具
+│   │   └── 📄 chunking.py        # 分块处理
+│   ├── 📁 common/                # 通用工具
+│   ├── 📁 ffmpeg/                # FFmpeg工具
+│   ├── 📁 file/                  # 文件工具
+│   └── 📁 logging/               # 日志工具
+├── 📁 web/                       # Web前端
 │   ├── 📄 index.html
 │   ├── 📄 style.css
 │   └── 📄 script.js
-└── 📁 tests/                   # 测试文件
+├── 📁 tests/                     # 测试文件
+├── 📁 docker/                    # Docker配置
+└── 📁 temp/                      # 临时文件目录
+```
+
+## 📝 API 端点
+
+### 核心端点
+
+| 端点 | 方法 | 描述 |
+|------|------|------|
+| `/api/v1/health` | GET | 健康检查 |
+| `/api/v1/transcribe/file` | POST | 上传文件转录 |
+| `/api/v1/transcribe/batch` | POST | 批量转录（多文件上传） |
+| `/api/v1/task/{task_id}` | GET | 查询任务状态 |
+| `/api/v1/tasks` | GET | 列出最近的任务 |
+| `/api/v1/models` | GET | 获取可用模型 |
+| `/api/v1/stats` | GET | 获取统计信息 |
+| `/ws/transcribe` | WS | WebSocket实时转录 |
+
+### 请求示例
+
+```bash
+# 单个文件转录
+curl -X POST "http://localhost:8665/api/v1/transcribe/file" \
+  -F "files=@video.mp4" \
+  -F "model=small" \
+  -F "language=zh" \
+  -F "format=json"
+
+# 批量转录 (最多20个文件)
+curl -X POST "http://localhost:8665/api/v1/transcribe/batch" \
+  -F "files=@video1.mp4" \
+  -F "files=@video2.mp4" \
+  -F "files=@video3.mp4" \
+  -F "model=small" \
+  -F "max_concurrent=2"
+
+# 查询任务状态
+curl "http://localhost:8665/api/v1/task/{task_id}"
+
+# 列出最近的任务
+curl "http://localhost:8665/api/v1/tasks?limit=10&status=completed"
+
+# 获取统计信息
+curl "http://localhost:8665/api/v1/stats"
 ```
 
 ## ⚡ 性能指标
@@ -221,7 +370,7 @@ video-transcriber/
 ### 处理速度 (基于Whisper Small模型)
 - **短视频** (0-1分钟): ~10-20秒
 - **中等视频** (1-5分钟): ~30-60秒
-- **长视频** (5-10分钟): ~1-3分钟
+- **长视频** (5-10分钟): ~1-3分钟（启用分块处理后）
 
 ### 准确率
 - **中文**: 95%+
@@ -234,158 +383,198 @@ video-transcriber/
 - **GPU**: 可选，3倍加速效果
 - **磁盘**: 临时文件约50-200MB/视频
 
-## 📝 API 端点
-
-### 核心端点
-
-| 端点 | 方法 | 描述 |
-|------|------|------|
-| `/api/v1/transcribe` | POST | 上传文件转录 |
-| `/api/v1/batch-transcribe` | POST | 批量转录（多文件上传） |
-| `/api/v1/status/{task_id}` | GET | 查询任务状态 |
-| `/api/v1/batch-status/{batch_id}` | GET | 查询批量任务状态 |
-| `/api/v1/models` | GET | 获取可用模型 |
-| `/api/v1/stats` | GET | 获取统计信息 |
-| `/api/v1/cleanup` | POST | 清理临时文件 |
-| `/ws/transcribe` | WS | WebSocket实时转录 |
-
-### 请求示例
-
-```bash
-# 单个文件转录
-curl -X POST "http://localhost:8665/api/v1/transcribe" \
-  -F "file=@video.mp4" \
-  -F "model=small" \
-  -F "language=auto" \
-  -F "output_format=json"
-
-# 批量转录
-curl -X POST "http://localhost:8665/api/v1/batch-transcribe" \
-  -F "files=@video1.mp4" \
-  -F "files=@video2.mp4" \
-  -F "model=small" \
-  -F "max_concurrent=3"
-```
-
-## 🔧 开发指南
-
-### 开发环境搭建
-
-```bash
-# 安装开发依赖
-pip install -r requirements.txt
-
-# 运行测试
-pytest
-
-# 代码格式化
-black .
-isort .
-
-# 类型检查
-mypy .
-```
-
-### 项目架构
-
-```
-┌─────────────────────────────────────────┐
-│              用户输入层                  │
-│       Web Upload / WebSocket            │
-└────────────┬────────────────────────────┘
-             │
-             ▼
-┌─────────────────────────────────────────┐
-│            核心引擎层                    │
-│     VideoTranscriptionEngine           │
-│  - 任务管理                             │
-│  - 进度追踪                             │
-│  - 批量处理                             │
-└────────────┬────────────────────────────┘
-             │
-     ┌───────┴────────┐
-     │                │
-     ▼                ▼
-┌──────────┐    ┌──────────────┐
-│音频提取器 │    │  语音转录器   │
-│Extractor │    │  Transcriber │
-│          │    │   (Whisper)  │
-└──────────┘    └──────────────┘
-     │                │
-     └────────┬───────┘
-              ▼
-     ┌────────────────┐
-     │  转录结果输出   │
-     │  TXT/JSON/SRT  │
-     └────────────────┘
-```
-
 ## 🐛 故障排除
 
-### 常见问题
+### 常见问题及解决方案
 
-**1. FFmpeg未找到**
+#### 1. FFmpeg 未找到
+
+**症状**: 启动时报错 `FFmpeg not found`
+
+**解决方案**:
 ```bash
-# 确认FFmpeg已安装
+# 检查FFmpeg是否已安装
 ffmpeg -version
 
-# Ubuntu/Debian安装
+# Ubuntu/Debian
+sudo apt update
 sudo apt install ffmpeg
 
-# macOS安装
+# macOS
 brew install ffmpeg
 
-# 添加到PATH环境变量
-export PATH=$PATH:/path/to/ffmpeg
+# Windows
+# 1. 下载: https://ffmpeg.org/download.html
+# 2. 解压并添加到PATH环境变量
+# 3. 或使用项目自带的 ffmpeg_bin 目录
 ```
 
-**2. 文件上传失败**
-- 检查文件大小是否超过500MB
-- 确认文件格式为视频格式
-- 检查网络连接
+#### 2. 转录出现乱码或错误语言
 
-**3. 转录准确率低**
-- 尝试更大的Whisper模型
-- 检查音频质量
-- 确认语言设置正确
+**症状**: 中文被识别为英语或其他语言
 
-**4. 内存不足**
-- 使用更小的Whisper模型 (tiny/base)
-- 减少并发处理数量
-- 增加系统内存
+**解决方案**:
+```bash
+# 方法1: 在API请求中指定语言
+curl -X POST "http://localhost:8665/api/v1/transcribe/file" \
+  -F "files=@video.mp4" \
+  -F "language=zh"
 
-**5. GPU加速不生效**
+# 方法2: 修改默认配置
+# 编辑 .env 文件
+DEFAULT_LANGUAGE=zh
+
+# 方法3: 命令行指定
+python main.py transcribe video.mp4 --language zh
+```
+
+#### 3. 长音频卡顿或重复
+
+**症状**: 长视频转录时卡住或重复内容
+
+**解决方案**:
+```bash
+# 启用音频分块处理（已默认启用）
+# 编辑 .env 文件确认以下配置:
+ENABLE_AUDIO_CHUNKING=true
+CHUNK_DURATION_SECONDS=180
+MIN_DURATION_FOR_CHUNKING=300
+
+# 如果仍有问题，缩短分块时长:
+CHUNK_DURATION_SECONDS=120  # 改为2分钟
+```
+
+#### 4. 内存不足 (CUDA Out Of Memory)
+
+**症状**: 报错 `CUDA out of memory` 或程序崩溃
+
+**解决方案**:
+```bash
+# 方法1: 使用更小的模型
+DEFAULT_MODEL=tiny  # 或 base
+
+# 方法2: 禁用GPU
+ENABLE_GPU=false
+
+# 方法3: 减少并发数
+MAX_CONCURRENT_TASKS=1
+
+# 方法4: 减小块大小（如果启用分块）
+CHUNK_DURATION_SECONDS=60  # 减小到1分钟
+```
+
+#### 5. GPU加速不生效
+
+**症状**: 使用GPU但速度没有提升
+
+**解决方案**:
 ```bash
 # 检查CUDA可用性
 python -c "import torch; print(torch.cuda.is_available())"
 
 # 安装CUDA支持的PyTorch
 pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu118
+
+# 确认配置
+ENABLE_GPU=true
 ```
 
-### 性能优化
+#### 6. 文件上传失败
 
-**1. GPU加速**
+**症状**: 上传时中断或报错
+
+**解决方案**:
+```bash
+# 检查文件大小限制
+MAX_FILE_SIZE=500  # 增加限制值
+
+# 检查临时目录权限
+TEMP_DIR=./temp
+chmod 755 ./temp
+
+# 检查磁盘空间
+df -h
+```
+
+#### 7. 依赖安装失败
+
+**症状**: pip install 报错
+
+**解决方案**:
+```bash
+# 更新pip
+python -m pip install --upgrade pip
+
+# 使用国内镜像源
+pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+
+# 单独安装问题依赖
+pip install openai-whisper
+pip install torch
+pip install pydub
+```
+
+#### 8. WebSocket 连接断开
+
+**症状**: 实时进度推送中断
+
+**解决方案**:
+```bash
+# 检查心跳超时配置（默认5分钟）
+# 如果网络不稳定，可以在代码中调整超时时间
+
+# 检查代理设置
+# 确保WebSocket不被代理拦截
+```
+
+### 性能优化建议
+
+#### 1. GPU加速配置
+
 ```bash
 # 安装CUDA支持的PyTorch
 pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu118
+
+# 启用GPU
+ENABLE_GPU=true
 ```
 
-**2. 模型缓存**
+#### 2. 模型预加载
+
 ```python
-# 预下载模型
+# 首次运行时预加载模型
 import whisper
 model = whisper.load_model("small")
 ```
 
-**3. 批量处理并发数调整**
+#### 3. 批量处理优化
+
 ```bash
-# API调用时调整
-curl -X POST "http://localhost:8665/api/v1/batch-transcribe" \
+# 根据硬件调整并发数
+# CPU: max_concurrent=1-2
+# GPU: max_concurrent=2-4
+curl -X POST "http://localhost:8665/api/v1/transcribe/batch" \
   -F "files=@video1.mp4" \
-  -F "files=@video2.mp4" \
-  -F "max_concurrent=5"
+  -F "max_concurrent=2"
 ```
+
+#### 4. 分块处理优化
+
+```env
+# 对于特别长的音频（1小时+）
+CHUNK_DURATION_SECONDS=120    # 缩短到2分钟
+CHUNK_OVERLAP_SECONDS=3        # 增加重叠到3秒
+```
+
+### 错误代码对照表
+
+| 错误代码 | HTTP状态 | 说明 | 解决方案 |
+|----------|----------|------|----------|
+| INVALID_FILE | 400 | 文件格式不支持 | 检查文件格式 |
+| FILE_TOO_LARGE | 413 | 文件超过大小限制 | 压缩视频或增加MAX_FILE_SIZE |
+| MODEL_LOAD_FAILED | 500 | 模型加载失败 | 检查网络/磁盘空间，重试 |
+| TRANSCRIPTION_FAILED | 500 | 转录失败 | 查看日志，检查音频质量 |
+| TIMEOUT | 504 | 处理超时 | 增加TASK_TIMEOUT或使用分块处理 |
 
 ## 🐳 Docker 使用
 
@@ -399,10 +588,17 @@ docker build -t video-transcriber .
 
 ```bash
 # 基础运行
-docker run -p 8000:8000 video-transcriber
+docker run -p 8665:8665 -v $(pwd)/temp:/app/temp video-transcriber
 
 # 使用GPU
-docker run --gpus all -p 8000:8000 video-transcriber
+docker run --gpus all -p 8665:8665 -v $(pwd)/temp:/app/temp video-transcriber
+
+# 指定配置
+docker run -p 8665:8665 \
+  -e ENABLE_GPU=true \
+  -e DEFAULT_MODEL=small \
+  -v $(pwd)/temp:/app/temp \
+  video-transcriber
 ```
 
 ### Docker Compose
@@ -413,12 +609,58 @@ services:
   video-transcriber:
     build: .
     ports:
-      - "8000:8000"
+      - "8665:8665"
     environment:
       - ENABLE_GPU=true
       - DEFAULT_MODEL=small
+      - DEFAULT_LANGUAGE=zh
+      - ENABLE_AUDIO_CHUNKING=true
+    volumes:
+      - ./temp:/app/temp
+      - ./models_cache:/app/models_cache
     restart: unless-stopped
 ```
+
+## 🔧 开发指南
+
+### 开发环境搭建
+
+```bash
+# 安装开发依赖
+pip install -r requirements.txt
+
+# 安装测试依赖
+pip install pytest pytest-asyncio pytest-cov
+
+# 运行测试
+pytest
+
+# 代码格式化
+black .
+isort .
+
+# 类型检查
+mypy .
+```
+
+### 运行测试
+
+```bash
+# 所有测试
+pytest
+
+# 单个测试文件
+pytest tests/test_api.py
+
+# 带覆盖率报告
+pytest --cov=. --cov-report=html
+```
+
+## 📚 相关文档
+
+- [代码审查报告](CODE_REVIEW_REPORT.md) - 详细的代码质量分析
+- [项目总结](PROJECT_SUMMARY.md) - 项目技术总结
+- [API文档](http://localhost:8665/docs) - Swagger自动生成的API文档
 
 ## 🤝 贡献指南
 

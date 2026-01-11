@@ -40,7 +40,8 @@ class TranscriptionService:
 
         # 初始化组件
         self.engine = VideoTranscriptionEngine(
-            temp_dir=self.config.TEMP_DIR
+            temp_dir=self.config.TEMP_DIR,
+            task_timeout=self.config.TASK_TIMEOUT
         )
         self.audio_extractor = AudioExtractor(
             temp_dir=self.config.TEMP_DIR,
@@ -55,7 +56,8 @@ class TranscriptionService:
         self,
         file_path: str,
         options: Optional[ProcessOptions] = None,
-        progress_callback: Optional[Callable[[str, float, str], None]] = None
+        progress_callback: Optional[Callable[[str, float, str], None]] = None,
+        timeout: Optional[int] = None
     ) -> TranscriptionResult:
         """
         转录单个视频文件
@@ -64,6 +66,7 @@ class TranscriptionService:
             file_path: 视频文件路径
             options: 处理选项
             progress_callback: 进度回调函数 (task_id, progress, message)
+            timeout: 自定义超时时间（秒）
 
         Returns:
             TranscriptionResult: 转录结果
@@ -128,6 +131,19 @@ class TranscriptionService:
 
             logger.info(f"视频处理完成: {file_path}")
             return result
+
+        except asyncio.TimeoutError:
+            # 超时处理
+            timeout_used = timeout or self.config.TASK_TIMEOUT
+            logger.error(f"视频处理超时: {file_path} (超时时间: {timeout_used}秒)")
+            task_info.status = TaskStatus.FAILED
+            task_info.error_message = f"处理超时 (超过 {timeout_used} 秒)"
+            task_info.completed_at = datetime.now()
+
+            if progress_callback:
+                progress_callback(task_id, 0, f"处理超时")
+
+            raise Exception(f"视频处理超时 (超过 {timeout_used} 秒)")
 
         except Exception as e:
             logger.error(f"视频处理失败: {e}")
@@ -281,13 +297,14 @@ class TranscriptionService:
         task_id: str,
         progress_callback: Optional[Callable[[str, float, str], None]]
     ) -> TranscriptionResult:
-        """执行转录"""
-        from core.transcriber import speech_transcriber
+        """执行转录 (使用独立转录器实例，支持长音频分块处理)"""
+        from core.transcriber import create_transcriber
 
-        # 设置模型
-        if speech_transcriber.model_name != options.model:
-            speech_transcriber.model_name = options.model
-            speech_transcriber.model = None
+        # 创建独立的转录器实例
+        transcriber = create_transcriber(
+            model_name=options.model,
+            model_cache_dir=self.config.MODEL_CACHE_DIR
+        )
 
         def update_progress(progress: float):
             if progress_callback:
@@ -295,16 +312,34 @@ class TranscriptionService:
                 total_progress = 50 + (progress * 0.45)
                 progress_callback(task_id, total_progress, "正在进行语音识别...")
 
-        result = await speech_transcriber.transcribe_audio(
-            audio_path=audio_path,
-            language=options.language,
-            with_timestamps=options.with_timestamps,
-            temperature=options.temperature,
-            progress_callback=update_progress
-        )
+        # 使用分块处理转录（如果启用）
+        if self.config.ENABLE_AUDIO_CHUNKING:
+            logger.info("启用音频分块处理模式")
+            result = await transcriber.transcribe_audio_with_chunking(
+                audio_path=audio_path,
+                language=options.language,
+                with_timestamps=options.with_timestamps,
+                temperature=options.temperature,
+                progress_callback=update_progress,
+                enable_chunking=True,
+                chunk_duration=self.config.CHUNK_DURATION_SECONDS,
+                chunk_overlap=self.config.CHUNK_OVERLAP_SECONDS,
+                min_chunk_duration=self.config.MIN_DURATION_FOR_CHUNKING
+            )
+        else:
+            result = await transcriber.transcribe_audio(
+                audio_path=audio_path,
+                language=options.language,
+                with_timestamps=options.with_timestamps,
+                temperature=options.temperature,
+                progress_callback=update_progress
+            )
 
         if progress_callback:
             progress_callback(task_id, 95, "转录完成")
+
+        # 卸载模型释放内存
+        await transcriber.unload_model()
 
         return result
 

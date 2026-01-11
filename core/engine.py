@@ -6,7 +6,7 @@
 import asyncio
 import uuid
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any, Callable
 from pathlib import Path
 
@@ -17,21 +17,24 @@ from models.schemas import (
     TaskStatus, ProcessOptions, WhisperModel, Language, OutputFormat
 )
 from .downloader import audio_extractor, extract_audio_from_video
-from .transcriber import speech_transcriber
 
 
 class VideoTranscriptionEngine:
     """视频转录核心引擎"""
 
-    def __init__(self, temp_dir: str = "./temp"):
+    def __init__(self, temp_dir: str = "./temp", task_timeout: int = 3600, keep_temp_files: bool = False):
         """
         初始化引擎
 
         Args:
             temp_dir: 临时文件目录
+            task_timeout: 任务超时时间（秒），默认1小时
+            keep_temp_files: 是否保留临时文件（用于调试），默认False
         """
         self.temp_dir = Path(temp_dir)
         self.temp_dir.mkdir(parents=True, exist_ok=True)
+        self.task_timeout = task_timeout
+        self.keep_temp_files = keep_temp_files
 
         # 任务管理
         self.tasks: Dict[str, TaskInfo] = {}
@@ -42,31 +45,38 @@ class VideoTranscriptionEngine:
             "total_processed": 0,
             "total_success": 0,
             "total_failed": 0,
-            "total_processing_time": 0.0
+            "total_processing_time": 0.0,
+            "total_timeout": 0
         }
 
     async def process_video_file(
         self,
         file_path: str,
         options: ProcessOptions,
-        progress_callback: Optional[Callable[[str, float, str], None]] = None
+        progress_callback: Optional[Callable[[str, float, str], None]] = None,
+        timeout: Optional[int] = None
     ) -> TranscriptionResult:
         """
-        处理单个视频文件
+        处理单个本地视频文件
 
         Args:
             file_path: 视频文件路径
             options: 处理选项
             progress_callback: 进度回调 (task_id, progress, message)
+            timeout: 自定义超时时间（秒），None则使用默认值
 
         Returns:
             TranscriptionResult: 转录结果
+
+        Raises:
+            asyncio.TimeoutError: 任务超时
         """
         task_id = self._generate_task_id()
         task_info = None
+        actual_timeout = timeout or self.task_timeout
 
         try:
-            logger.info(f"开始处理视频文件: {file_path}")
+            logger.info(f"开始处理视频文件: {file_path} (超时: {actual_timeout}秒)")
             start_time = time.time()
 
             # 创建任务记录
@@ -122,12 +132,14 @@ class VideoTranscriptionEngine:
                 total_progress = 50 + (progress * 0.45)
                 update_progress(total_progress, "正在进行语音识别...")
 
-            # 设置转录器模型
-            if speech_transcriber.model_name != options.model:
-                speech_transcriber.model_name = options.model
-                speech_transcriber.model = None  # 强制重新加载
+            # 创建独立的转录器实例，避免全局单例竞态条件
+            from .transcriber import create_transcriber
+            transcriber = create_transcriber(
+                model_name=options.model,
+                model_cache_dir=str(self.temp_dir / "models_cache")
+            )
 
-            transcription_result = await speech_transcriber.transcribe_audio(
+            transcription_result = await transcriber.transcribe_audio(
                 audio_path=audio_path,
                 language=options.language,
                 with_timestamps=options.with_timestamps,
@@ -135,14 +147,21 @@ class VideoTranscriptionEngine:
                 progress_callback=transcribe_progress
             )
 
+            # 卸载模型释放内存
+            await transcriber.unload_model()
+
             logger.info(f"转录完成: {len(transcription_result.text)} 字符")
             update_progress(95, "转录完成，正在处理结果...")
 
-            # 4. 清理临时文件
-            try:
-                Path(audio_path).unlink()
-            except Exception:
-                pass
+            # 4. 清理临时文件（可选保留用于调试）
+            if not self.keep_temp_files:
+                try:
+                    Path(audio_path).unlink()
+                    logger.debug(f"已清理临时音频文件: {audio_path}")
+                except Exception as e:
+                    logger.warning(f"清理临时文件失败: {e}")
+            else:
+                logger.info(f"保留临时音频文件: {audio_path}")
 
             # 5. 完成任务
             task_info.status = TaskStatus.COMPLETED
@@ -161,6 +180,24 @@ class VideoTranscriptionEngine:
             logger.info(f"视频处理完成，耗时: {processing_time:.2f}秒")
             return transcription_result
 
+        except asyncio.TimeoutError:
+            # 超时处理
+            logger.error(f"视频处理超时: {file_path} (超时时间: {actual_timeout}秒)")
+
+            if task_info is not None:
+                task_info.status = TaskStatus.FAILED
+                task_info.error_message = f"处理超时 (超过 {actual_timeout} 秒)"
+                task_info.completed_at = datetime.now()
+
+            self.stats["total_processed"] += 1
+            self.stats["total_failed"] += 1
+            self.stats["total_timeout"] += 1
+
+            if progress_callback:
+                progress_callback(task_id, 0, f"处理超时")
+
+            raise Exception(f"视频处理超时 (超过 {actual_timeout} 秒)")
+
         except Exception as e:
             # 错误处理
             logger.error(f"视频处理失败: {e}")
@@ -177,6 +214,42 @@ class VideoTranscriptionEngine:
                 progress_callback(task_id, 0, f"处理失败: {str(e)}")
 
             raise Exception(f"视频处理失败: {str(e)}")
+
+    async def process_video_url(
+        self,
+        url: str,
+        options: ProcessOptions,
+        progress_callback: Optional[Callable[[str, float, str], None]] = None
+    ) -> TranscriptionResult:
+        """
+        处理视频URL (下载后转录)
+
+        注意: 此功能需要额外的视频下载库支持。
+        当前版本返回错误提示，请使用 process_video_file() 处理本地文件。
+
+        Args:
+            url: 视频URL
+            options: 处理选项
+            progress_callback: 进度回调 (task_id, progress, message)
+
+        Returns:
+            TranscriptionResult: 转录结果
+
+        Raises:
+            NotImplementedError: 当URL下载功能未启用时
+        """
+        logger.warning(f"尝试处理视频URL: {url}")
+
+        raise NotImplementedError(
+            "URL视频下载功能未启用。当前版本仅支持本地视频文件处理。\n"
+            "请使用以下方法之一:\n"
+            "1. 通过 Web 界面上传视频文件\n"
+            "2. 使用 POST /api/v1/transcribe/file API 上传文件\n"
+            "3. 使用命令行: python main.py transcribe <本地文件路径>\n\n"
+            "如需URL下载功能，请:\n"
+            "- 安装 yt-dlp: pip install yt-dlp\n"
+            "- 在配置中设置 ENABLE_PLATFORM_DOWNLOAD=true"
+        )
 
     async def process_batch_files(
         self,

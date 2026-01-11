@@ -7,6 +7,7 @@ from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from typing import List, Optional, Dict, Any
+import os
 from pydantic import BaseModel, Field, validator
 
 
@@ -77,11 +78,29 @@ class VideoFileInfo(BaseModel):
 
     @validator('file_path')
     def file_path_must_exist(cls, v):
-        if not Path(v).exists():
+        # 规范化路径以防止路径遍历攻击
+        try:
+            normalized_path = Path(v).resolve()
+        except Exception:
+            raise ValueError(f'无效的文件路径: {v}')
+
+        # 检查路径是否存在
+        if not normalized_path.exists():
             raise ValueError(f'文件不存在: {v}')
-        if not Path(v).is_file():
+        if not normalized_path.is_file():
             raise ValueError(f'路径不是文件: {v}')
-        return v
+
+        # 防止路径遍历攻击：检查规范化后的路径是否仍在允许的目录内
+        # 如果是相对路径，确保不越界
+        if not Path(v).is_absolute():
+            # 相对路径，转换为绝对路径后检查
+            abs_path = Path(os.path.abspath(v))
+            # 检查是否包含父目录引用
+            if '..' in Path(v).parts:
+                raise ValueError(f'路径包含非法的父目录引用: {v}')
+
+        # 返回规范化的绝对路径
+        return str(normalized_path)
 
     @validator('format', pre=True)
     def parse_format(cls, v):

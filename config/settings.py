@@ -57,9 +57,31 @@ class Settings(BaseSettings):
     MODEL_CACHE_DIR: str = "./models_cache"
 
     # 转录配置
-    DEFAULT_LANGUAGE: str = "auto"
+    # 默认使用中文以避免 Whisper 错误识别为英语
+    # 如需自动检测，可设置为 "auto"
+    DEFAULT_LANGUAGE: str = "zh"
     DEFAULT_TEMPERATURE: float = 0.0
     ENABLE_WORD_TIMESTAMPS: bool = False
+
+    # 音频分块处理配置
+    # 长音频分段处理可避免 Whisper 的重复/卡顿问题
+    ENABLE_AUDIO_CHUNKING: bool = True
+    CHUNK_DURATION_SECONDS: int = 180  # 每块3分钟（秒）
+    CHUNK_OVERLAP_SECONDS: int = 2  # 块之间重叠时间（秒），避免接缝处丢失内容
+    MIN_DURATION_FOR_CHUNKING: int = 300  # 超过5分钟的音频才启用分块处理
+
+    # 语言验证：确保语言代码有效
+    SUPPORTED_LANGUAGES: List[str] = [
+        "zh",  # 中文
+        "en",  # 英语
+        "ja",  # 日语
+        "ko",  # 韩语
+        "es",  # 西班牙语
+        "fr",  # 法语
+        "de",  # 德语
+        "ru",  # 俄语
+        "auto" # 自动检测
+    ]
 
     # ============================================================
     # 文件配置
@@ -173,6 +195,18 @@ class Settings(BaseSettings):
         valid_models = ["tiny", "base", "small", "medium", "large"]
         if v not in valid_models:
             raise ValueError(f"DEFAULT_MODEL must be one of {valid_models}")
+        return v
+
+    @field_validator("DEFAULT_LANGUAGE")
+    @classmethod
+    def validate_language(cls, v: str) -> str:
+        """验证转录语言"""
+        valid_languages = ["zh", "en", "ja", "ko", "es", "fr", "de", "ru", "auto"]
+        if v not in valid_languages:
+            raise ValueError(
+                f"DEFAULT_LANGUAGE must be one of {valid_languages}. "
+                f"常见值: zh(中文), en(英语), ja(日语), auto(自动检测)"
+            )
         return v
 
     @field_validator("PORT")
