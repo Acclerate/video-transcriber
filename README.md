@@ -1,6 +1,6 @@
 # Video Transcriber 🎥➡️📝
 
-一个强大的视频文件转文本工具，基于SenseVoice实现高精度多语言语音识别。
+一个视频文件转文本工具，基于SenseVoice实现高精度多语言语音识别。
 
 ![Python](https://img.shields.io/badge/python-3.10%20%28recommended%29-blue.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
@@ -583,7 +583,7 @@ python -m pip install --upgrade pip
 pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 
 # 单独安装问题依赖
-pip install funasr modelscope
+pip install openai-whisper
 pip install torch
 pip install pydub
 ```
@@ -617,13 +617,8 @@ ENABLE_GPU=true
 
 ```python
 # 首次运行时预加载模型
-from core.sensevoice_transcriber import SenseVoiceTranscriber
-
-transcriber = SenseVoiceTranscriber(
-    model_name="sensevoice-small",
-    device="cuda"  # 或 "cpu"
-)
-await transcriber.load_model()
+import whisper
+model = whisper.load_model("small")
 ```
 
 #### 3. 批量处理优化
@@ -757,9 +752,7 @@ pytest --cov=. --cov-report=html
 
 ## 🙏 致谢
 
-- [SenseVoice](https://github.com/FunAudioLLM/SenseVoice) - 阿里巴巴达摩院的多语言语音识别模型
-- [FunASR](https://github.com/modelscope/FunASR) - 阿里达摩院语音识别工具包
-- [ModelScope](https://github.com/modelscope/modelscope) - 魔搭社区模型库
+- [OpenAI Whisper](https://github.com/openai/whisper) - 强大的语音识别模型
 - [FastAPI](https://fastapi.tiangolo.com/) - 现代Web框架
 - [pydub](https://github.com/jiaaro/pydub) - 音频处理库
 
