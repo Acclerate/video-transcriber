@@ -8,7 +8,7 @@ from unittest.mock import patch, AsyncMock
 from fastapi.testclient import TestClient
 
 from api.main import app
-from models.schemas import WhisperModel, Language
+from models.schemas import TranscriptionModel, Language
 
 
 @pytest.fixture
@@ -117,7 +117,7 @@ class TestTranscribeEndpoint:
         from models.schemas import ProcessOptions
 
         engine = VideoTranscriptionEngine()
-        options = ProcessOptions(model=WhisperModel.SMALL)
+        options = ProcessOptions(model=TranscriptionModel.SENSEVOICE_SMALL)
 
         async def test_call():
             with pytest.raises(NotImplementedError) as exc_info:

@@ -15,7 +15,7 @@ from loguru import logger
 from config import settings, Settings
 from models.schemas import (
     TranscriptionResult, TaskInfo, TaskStatus,
-    ProcessOptions, WhisperModel, Language, OutputFormat
+    ProcessOptions, TranscriptionModel, Language, OutputFormat
 )
 from core.engine import VideoTranscriptionEngine
 from core.downloader import AudioExtractor
@@ -74,7 +74,7 @@ class TranscriptionService:
         # 使用默认选项
         if options is None:
             options = ProcessOptions(
-                model=WhisperModel(self.config.DEFAULT_MODEL),
+                model=TranscriptionModel(self.config.DEFAULT_MODEL),
                 language=Language(self.config.DEFAULT_LANGUAGE),
                 with_timestamps=self.config.ENABLE_WORD_TIMESTAMPS,
                 output_format=OutputFormat.TXT,
@@ -179,7 +179,7 @@ class TranscriptionService:
 
         if options is None:
             options = ProcessOptions(
-                model=WhisperModel(self.config.DEFAULT_MODEL),
+                model=TranscriptionModel(self.config.DEFAULT_MODEL),
                 language=Language(self.config.DEFAULT_LANGUAGE),
                 with_timestamps=self.config.ENABLE_WORD_TIMESTAMPS,
                 output_format=OutputFormat.TXT,
@@ -297,13 +297,15 @@ class TranscriptionService:
         task_id: str,
         progress_callback: Optional[Callable[[str, float, str], None]]
     ) -> TranscriptionResult:
-        """执行转录 (使用独立转录器实例，支持长音频分块处理)"""
-        from core.transcriber import create_transcriber
+        """执行转录 (使用独立转录器实例)"""
+        from core.sensevoice_transcriber import create_sensevoice_transcriber
 
         # 创建独立的转录器实例
-        transcriber = create_transcriber(
-            model_name=options.model,
-            model_cache_dir=self.config.MODEL_CACHE_DIR
+        transcriber = create_sensevoice_transcriber(
+            model_name=options.model.value if hasattr(options.model, 'value') else str(options.model),
+            model_cache_dir=self.config.MODEL_CACHE_DIR,
+            enable_punctuation=getattr(self.config, 'ENABLE_PUNCTUATION', True),
+            clean_special_tokens=getattr(self.config, 'CLEAN_SPECIAL_TOKENS', True)
         )
 
         def update_progress(progress: float):
@@ -312,28 +314,18 @@ class TranscriptionService:
                 total_progress = 50 + (progress * 0.45)
                 progress_callback(task_id, total_progress, "正在进行语音识别...")
 
-        # 使用分块处理转录（如果启用）
+        # SenseVoice 本身可以很好地处理长音频，暂时不使用分块处理
+        # 如果启用分块处理配置，这里记录日志但不使用分块
         if self.config.ENABLE_AUDIO_CHUNKING:
-            logger.info("启用音频分块处理模式")
-            result = await transcriber.transcribe_audio_with_chunking(
-                audio_path=audio_path,
-                language=options.language,
-                with_timestamps=options.with_timestamps,
-                temperature=options.temperature,
-                progress_callback=update_progress,
-                enable_chunking=True,
-                chunk_duration=self.config.CHUNK_DURATION_SECONDS,
-                chunk_overlap=self.config.CHUNK_OVERLAP_SECONDS,
-                min_chunk_duration=self.config.MIN_DURATION_FOR_CHUNKING
-            )
-        else:
-            result = await transcriber.transcribe_audio(
-                audio_path=audio_path,
-                language=options.language,
-                with_timestamps=options.with_timestamps,
-                temperature=options.temperature,
-                progress_callback=update_progress
-            )
+            logger.info("检测到音频分块处理配置已启用，但 SenseVoice 将直接处理完整音频")
+
+        result = await transcriber.transcribe_audio(
+            audio_path=audio_path,
+            language=options.language,
+            with_timestamps=options.with_timestamps,
+            temperature=options.temperature,
+            progress_callback=update_progress
+        )
 
         if progress_callback:
             progress_callback(task_id, 95, "转录完成")

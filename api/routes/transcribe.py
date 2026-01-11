@@ -15,9 +15,10 @@ from loguru import logger
 from config import settings
 from models.schemas import (
     ProcessOptions, APIResponse, TranscribeResponse,
-    TranscriptionResult, WhisperModel, Language, OutputFormat
+    TranscriptionResult, TranscriptionModel, Language, OutputFormat
 )
 from services import TranscriptionService, FileService
+
 
 # 速率限制器
 limiter = Limiter(key_func=get_remote_address)
@@ -27,6 +28,23 @@ transcribe_router = APIRouter(
     prefix="/api/v1/transcribe",
     tags=["转录服务"]
 )
+
+
+# 模型名称映射 (支持旧模型名称的兼容性)
+MODEL_NAME_MAP = {
+    "tiny": "sensevoice-small",
+    "base": "sensevoice-small",
+    "small": "sensevoice-small",
+    "medium": "sensevoice-small",
+    "large": "sensevoice-small",
+    "sensevoice-small": "sensevoice-small",
+}
+
+
+def normalize_model_name(model: str) -> str:
+    """规范化模型名称，支持旧模型名称的兼容性"""
+    model_lower = model.lower().strip()
+    return MODEL_NAME_MAP.get(model_lower, "sensevoice-small")
 
 
 # 依赖注入
@@ -63,7 +81,7 @@ async def transcribe_file(
 
     Args:
         file: 上传的视频文件
-        model: Whisper 模型
+        model: 语音识别模型 (默认: sensevoice-small)
         language: 目标语言
         format: 输出格式
         timestamps: 是否包含时间戳
@@ -100,8 +118,10 @@ async def transcribe_file(
             raise HTTPException(status_code=400, detail=error_msg)
 
         # 准备处理选项
+        # 规范化模型名称 (支持旧的模型名称如 "small", "base" 等)
+        normalized_model = normalize_model_name(model)
         options = ProcessOptions(
-            model=WhisperModel(model),
+            model=TranscriptionModel(normalized_model),
             language=Language(language),
             with_timestamps=timestamps,
             output_format=OutputFormat(format),
@@ -152,7 +172,7 @@ async def transcribe_batch(
 
     Args:
         files: 上传的视频文件列表 (最多20个)
-        model: Whisper 模型
+        model: 语音识别模型 (默认: sensevoice-small)
         language: 目标语言
         format: 输出格式
         max_concurrent: 最大并发数 (1-10)
@@ -212,8 +232,10 @@ async def transcribe_batch(
             saved_files.append(file_path)
 
         # 准备处理选项
+        # 规范化模型名称 (支持旧的模型名称如 "small", "base" 等)
+        normalized_model = normalize_model_name(model)
         options = ProcessOptions(
-            model=WhisperModel(model),
+            model=TranscriptionModel(normalized_model),
             language=Language(language),
             with_timestamps=False,
             output_format=OutputFormat(format),

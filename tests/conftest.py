@@ -17,7 +17,7 @@ sys.path.insert(0, str(project_root))
 
 from models.schemas import (
     TranscriptionResult, TranscriptionSegment,
-    WhisperModel, Language, TaskStatus
+    TranscriptionModel, Language, TaskStatus
 )
 
 
@@ -73,7 +73,7 @@ def sample_transcription_result(sample_transcription_segments) -> TranscriptionR
         confidence=avg_confidence,
         segments=sample_transcription_segments,
         processing_time=12.5,
-        whisper_model=WhisperModel.SMALL
+        whisper_model=TranscriptionModel.SENSEVOICE_SMALL
     )
 
 
@@ -81,7 +81,7 @@ def sample_transcription_result(sample_transcription_segments) -> TranscriptionR
 def mock_speech_transcriber():
     """模拟语音转录器"""
     transcriber = Mock()
-    transcriber.model_name = WhisperModel.SMALL
+    transcriber.model_name = TranscriptionModel.SENSEVOICE_SMALL
     transcriber.device = "cpu"
     transcriber.load_model = AsyncMock()
     transcriber.transcribe_audio = AsyncMock()
@@ -96,7 +96,7 @@ def mock_speech_transcriber():
 
 @pytest.fixture
 def mock_whisper_model():
-    """模拟Whisper模型"""
+    """模拟语音识别模型 (已弃用 Whisper)"""
     model = Mock()
     model.transcribe = Mock(return_value={
         "text": "这是测试转录文本",
@@ -170,7 +170,7 @@ def assert_transcription_result_valid(result: TranscriptionResult):
     assert result.language
     assert 0 <= result.confidence <= 1
     assert result.processing_time > 0
-    assert result.whisper_model in WhisperModel
+    assert result.whisper_model in TranscriptionModel
 
     for segment in result.segments:
         assert segment.start_time >= 0

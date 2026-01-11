@@ -146,7 +146,7 @@ class AudioExtractor:
 
             # 音频导出设置
             if output_format.lower() == "wav":
-                # 转换为16kHz单声道WAV (Whisper推荐格式)
+                # 转换为16kHz单声道WAV (语音识别推荐格式)
                 audio = audio.set_frame_rate(16000).set_channels(1)
                 audio.export(str(audio_path), format="wav")
             elif output_format.lower() == "mp3":
@@ -196,7 +196,7 @@ class AudioExtractor:
                 progress_callback(40)
 
             # 音频优化处理
-            # 1. 转换为16kHz单声道 (Whisper最佳格式)
+            # 1. 转换为16kHz单声道 (语音识别最佳格式)
             audio = audio.set_frame_rate(16000).set_channels(1)
 
             # 2. 音量标准化

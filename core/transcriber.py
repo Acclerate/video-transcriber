@@ -1,7 +1,8 @@
 """
-语音转文字模块
-基于OpenAI Whisper实现高精度语音识别
-支持重试机制以提高可靠性
+语音转文字模块 (已弃用 - 请使用 core.sensevoice_transcriber)
+
+这是基于 OpenAI Whisper 的旧实现，仅保留用于向后兼容。
+新项目应使用 SenseVoice 转录器 (core.sensevoice_transcriber)。
 """
 
 import os
@@ -17,18 +18,18 @@ import numpy as np
 from loguru import logger
 
 from models.schemas import (
-    TranscriptionResult, TranscriptionSegment, WhisperModel,
+    TranscriptionResult, TranscriptionSegment, TranscriptionModel,
     Language, OutputFormat
 )
 from utils.common import retry_on_exception
 
 
 class SpeechTranscriber:
-    """语音转录器"""
+    """语音转录器 (已弃用 - 基于OpenAI Whisper)"""
 
     def __init__(
         self,
-        model_name: WhisperModel = WhisperModel.SMALL,
+        model_name: TranscriptionModel = TranscriptionModel.SENSEVOICE_SMALL,
         device: Optional[str] = None,
         model_cache_dir: Optional[str] = None
     ):
@@ -57,11 +58,7 @@ class SpeechTranscriber:
         
         # 支持的模型信息
         self.model_info = {
-            WhisperModel.TINY: {"size": "39MB", "speed": "10x", "accuracy": "★★☆☆☆"},
-            WhisperModel.BASE: {"size": "74MB", "speed": "7x", "accuracy": "★★★☆☆"},
-            WhisperModel.SMALL: {"size": "244MB", "speed": "4x", "accuracy": "★★★★☆"},
-            WhisperModel.MEDIUM: {"size": "769MB", "speed": "2x", "accuracy": "★★★★★"},
-            WhisperModel.LARGE: {"size": "1550MB", "speed": "1x", "accuracy": "★★★★★"}
+            TranscriptionModel.SENSEVOICE_SMALL: {"size": "244MB", "speed": "4x", "accuracy": "★★★★☆", "description": "多语言语音识别，中文优化"}
         }
     
     def _determine_device(self, device: Optional[str]) -> str:
@@ -79,7 +76,7 @@ class SpeechTranscriber:
         
         return device
     
-    async def load_model(self, model_name: Optional[WhisperModel] = None) -> None:
+    async def load_model(self, model_name: Optional[TranscriptionModel] = None) -> None:
         """
         加载Whisper模型 (线程安全)
 
@@ -827,7 +824,7 @@ speech_transcriber = SpeechTranscriber()
 
 
 def create_transcriber(
-    model_name: WhisperModel = WhisperModel.SMALL,
+    model_name: TranscriptionModel = TranscriptionModel.SENSEVOICE_SMALL,
     device: Optional[str] = None,
     model_cache_dir: Optional[str] = None
 ) -> SpeechTranscriber:
@@ -853,7 +850,7 @@ def create_transcriber(
 
 async def transcribe_audio_file(
     audio_path: str,
-    model: WhisperModel = WhisperModel.SMALL,
+    model: TranscriptionModel = TranscriptionModel.SENSEVOICE_SMALL,
     language: Language = Language.AUTO,
     with_timestamps: bool = False,
     output_format: OutputFormat = OutputFormat.JSON,
@@ -898,7 +895,7 @@ if __name__ == "__main__":
     import asyncio
     
     async def test():
-        transcriber = SpeechTranscriber(WhisperModel.TINY)
+        transcriber = SpeechTranscriber(TranscriptionModel.SENSEVOICE_SMALL)
         
         try:
             print("测试转录器初始化...")

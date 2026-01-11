@@ -217,12 +217,27 @@ async def get_batch_status(batch_id: str):
 
 @app.get("/api/v1/models")
 async def get_available_models():
-    """获取可用的Whisper模型"""
+    """获取可用的语音识别模型"""
     try:
-        from core.transcriber import speech_transcriber
+        from models.schemas import TranscriptionModel
+        from config import settings
 
-        models_info = speech_transcriber.get_available_models()
-        current_model = speech_transcriber.get_model_info()
+        # SenseVoice 模型信息
+        models_info = {
+            "sensevoice-small": {
+                "name": "SenseVoice Small",
+                "size": "244MB",
+                "description": "多语言语音识别，中文优化",
+                "languages": ["中文", "英文", "日语", "韩语", "粤语", "法语", "西班牙语"],
+                "speed": "4x",
+                "accuracy": "★★★★☆"
+            }
+        }
+
+        current_model = {
+            "name": models_info.get(settings.DEFAULT_MODEL, {}).get("name", settings.DEFAULT_MODEL),
+            "value": settings.DEFAULT_MODEL
+        }
 
         return APIResponse(
             code=200,

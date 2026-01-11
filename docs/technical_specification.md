@@ -95,7 +95,7 @@ class AudioExtractor:
 class SpeechTranscriber:
     """语音转录器"""
 
-    def load_model(self, model: WhisperModel):
+    def load_model(self, model: TranscriptionModel):
         """加载 Whisper 模型"""
 
     def transcribe_audio(self, audio_path: str) -> TranscriptionResult:
@@ -130,7 +130,7 @@ class VideoTranscriptionEngine:
 ```python
 class ProcessOptions(BaseModel):
     """处理选项"""
-    model: WhisperModel = WhisperModel.SMALL
+    model: TranscriptionModel = TranscriptionModel.SMALL
     language: Language = Language.AUTO
     with_timestamps: bool = False
     output_format: OutputFormat = OutputFormat.TXT
@@ -146,7 +146,7 @@ class TranscriptionResult(BaseModel):
     confidence: float
     segments: List[TranscriptionSegment]
     processing_time: float
-    whisper_model: WhisperModel
+    whisper_model: TranscriptionModel
 ```
 
 ### 4.3 任务状态模型

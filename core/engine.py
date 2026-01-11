@@ -14,7 +14,7 @@ from loguru import logger
 
 from models.schemas import (
     VideoFileInfo, TranscriptionResult, TaskInfo, BatchTaskInfo,
-    TaskStatus, ProcessOptions, WhisperModel, Language, OutputFormat
+    TaskStatus, ProcessOptions, TranscriptionModel, Language, OutputFormat
 )
 from .downloader import audio_extractor, extract_audio_from_video
 
@@ -438,7 +438,7 @@ transcription_engine = VideoTranscriptionEngine()
 
 async def transcribe_video_file(
     file_path: str,
-    model: WhisperModel = WhisperModel.SMALL,
+    model: TranscriptionModel = TranscriptionModel.SENSEVOICE_SMALL,
     language: Language = Language.AUTO,
     with_timestamps: bool = False,
     output_format: OutputFormat = OutputFormat.JSON,
@@ -449,7 +449,7 @@ async def transcribe_video_file(
 
     Args:
         file_path: 视频文件路径
-        model: Whisper模型
+        model: 语音识别模型
         language: 语言
         with_timestamps: 是否包含时间戳
         output_format: 输出格式

@@ -22,7 +22,7 @@ from dotenv import load_dotenv
 # 添加项目根目录到Python路径
 sys.path.insert(0, str(Path(__file__).parent))
 
-from models.schemas import WhisperModel, Language, OutputFormat, ProcessOptions
+from models.schemas import TranscriptionModel, Language, OutputFormat, ProcessOptions
 from config import settings
 from services import TranscriptionService
 from utils.logging import setup_default_logger
@@ -98,7 +98,7 @@ def print_banner():
 │         视频文件转文本工具                 │
 │                                         │
 │    🎥 支持本地视频文件                   │
-│    🤖 基于OpenAI Whisper高精度识别         │
+│    🤖 基于SenseVoice高精度多语言识别      │
 │    🔒 本地处理，保护隐私                   │
 ╰─────────────────────────────────────────╯
 """
@@ -107,7 +107,7 @@ def print_banner():
 
 def print_model_info():
     """打印模型信息"""
-    table = Table(title="🤖 可用的Whisper模型", show_header=True, header_style="bold magenta")
+    table = Table(title="🤖 可用的语音识别模型", show_header=True, header_style="bold magenta")
     table.add_column("模型", style="cyan")
     table.add_column("大小", style="green")
     table.add_column("速度", style="yellow")
@@ -115,11 +115,7 @@ def print_model_info():
     table.add_column("推荐场景", style="blue")
 
     model_data = [
-        ("tiny", "39MB", "~10x", "★★☆☆☆", "快速预览"),
-        ("base", "74MB", "~7x", "★★★☆☆", "一般使用"),
-        ("small", "244MB", "~4x", "★★★★☆", "推荐使用"),
-        ("medium", "769MB", "~2x", "★★★★★", "高质量需求"),
-        ("large", "1550MB", "~1x", "★★★★★", "专业场景")
+        ("sensevoice-small", "244MB", "~4x", "★★★★☆", "多语言支持，中文优化")
     ]
 
     for model, size, speed, accuracy, scene in model_data:
@@ -156,8 +152,8 @@ def cli(ctx, debug, log_level, skip_deps_check):
 @cli.command()
 @click.argument('file_path', type=click.Path(exists=True))
 @click.option('--model', '-m',
-              type=click.Choice(['tiny', 'base', 'small', 'medium', 'large']),
-              default='small', help='Whisper模型 (默认: small)')
+              type=click.Choice(['sensevoice-small']),
+              default='sensevoice-small', help='语音识别模型 (默认: sensevoice-small)')
 @click.option('--language', '-l',
               type=click.Choice(['auto', 'zh', 'en', 'ja', 'ko', 'es', 'fr', 'de', 'ru']),
               default='auto', help='目标语言 (默认: auto)')
@@ -191,7 +187,7 @@ async def _transcribe_single(file_path, model, language, output, output_format, 
 
         # 设置选项
         options = ProcessOptions(
-            model=WhisperModel(model),
+            model=TranscriptionModel(model),
             language=Language(language),
             with_timestamps=timestamps,
             output_format=OutputFormat(output_format),
@@ -221,8 +217,8 @@ async def _transcribe_single(file_path, model, language, output, output_format, 
         if output_format == 'json':
             output_text = result.model_dump_json(indent=2)
         else:
-            from core.transcriber import speech_transcriber
-            output_text = speech_transcriber.format_output(result, OutputFormat(output_format))
+            from utils.output_formatter import format_output
+            output_text = format_output(result, OutputFormat(output_format))
 
         # 保存或显示结果
         if output:
@@ -247,7 +243,7 @@ async def _transcribe_single(file_path, model, language, output, output_format, 
             stats_table.add_row("🎯 置信度:", f"{result.confidence:.1%}")
             stats_table.add_row("🌍 检测语言:", result.language)
             stats_table.add_row("⏱️ 处理时间:", format_duration(result.processing_time))
-            stats_table.add_row("🤖 使用模型:", result.whisper_model.value)
+            stats_table.add_row("🤖 使用模型:", result.whisper_model.value if hasattr(result, 'whisper_model') else result.model_name if hasattr(result, 'model_name') else 'sensevoice-small')
             stats_table.add_row("📝 文本长度:", f"{len(result.text)} 字符")
 
             console.print("\n[bold blue]处理统计:[/bold blue]")
@@ -264,8 +260,8 @@ async def _transcribe_single(file_path, model, language, output, output_format, 
 @cli.command()
 @click.argument('file_path', type=click.Path(exists=True))
 @click.option('--model', '-m',
-              type=click.Choice(['tiny', 'base', 'small', 'medium', 'large']),
-              default='small', help='Whisper模型')
+              type=click.Choice(['sensevoice-small']),
+              default='sensevoice-small', help='语音识别模型')
 @click.option('--language', '-l',
               type=click.Choice(['auto', 'zh', 'en', 'ja', 'ko']),
               default='auto', help='目标语言')
@@ -310,7 +306,7 @@ async def _transcribe_batch(file_path, model, language, output_dir, output_forma
 
         # 设置选项
         options = ProcessOptions(
-            model=WhisperModel(model),
+            model=TranscriptionModel(model),
             language=Language(language),
             with_timestamps=False,
             output_format=OutputFormat(output_format),
@@ -362,8 +358,8 @@ async def _transcribe_batch(file_path, model, language, output_dir, output_forma
                 if output_format == 'json':
                     output_text = task_info.result.model_dump_json(indent=2)
                 else:
-                    from core.transcriber import speech_transcriber
-                    output_text = speech_transcriber.format_output(task_info.result, OutputFormat(output_format))
+                    from utils.output_formatter import format_output
+                    output_text = format_output(task_info.result, OutputFormat(output_format))
 
                 # 保存文件
                 with open(output_file, 'w', encoding='utf-8') as f:
@@ -386,7 +382,7 @@ async def _transcribe_batch(file_path, model, language, output_dir, output_forma
 
 @cli.command()
 def models():
-    """显示可用的Whisper模型信息"""
+    """显示可用的语音识别模型信息"""
     print_banner()
     print_model_info()
 
@@ -398,7 +394,13 @@ def info():
 
     # 系统信息
     import torch
-    from core.transcriber import speech_transcriber
+    from core.sensevoice_transcriber import SenseVoiceTranscriber
+
+    # 创建临时转录器实例获取信息
+    temp_transcriber = SenseVoiceTranscriber(
+        model_name=settings.DEFAULT_MODEL,
+        device="cuda" if torch.cuda.is_available() else "cpu"
+    )
 
     info_table = Table(title="🔧 系统信息", show_header=False)
     info_table.add_row("Python版本:", sys.version.split()[0])
@@ -409,8 +411,8 @@ def info():
         info_table.add_row("CUDA设备:", torch.cuda.get_device_name(0))
         info_table.add_row("CUDA内存:", f"{torch.cuda.get_device_properties(0).total_memory // 1024**3}GB")
 
-    info_table.add_row("当前模型:", speech_transcriber.model_name.value)
-    info_table.add_row("模型设备:", speech_transcriber.device)
+    info_table.add_row("当前模型:", temp_transcriber.model_name)
+    info_table.add_row("模型设备:", temp_transcriber.device)
 
     console.print(info_table)
 

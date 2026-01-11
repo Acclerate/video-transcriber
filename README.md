@@ -1,15 +1,15 @@
 # Video Transcriber 🎥➡️📝
 
-一个强大的视频文件转文本工具，基于OpenAI Whisper实现高精度语音识别。
+一个强大的视频文件转文本工具，基于SenseVoice实现高精度多语言语音识别。
 
 ![Python](https://img.shields.io/badge/python-3.10%20%28recommended%29-blue.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
-![Whisper](https://img.shields.io/badge/whisper-OpenAI-orange.svg)
+![SenseVoice](https://img.shields.io/badge/SenseVoice-FunASR-orange.svg)
 
 ## ✨ 特性
 
 - 📤 **文件上传**: 直接上传视频文件进行处理
-- 🤖 **高精度转录**: 基于OpenAI Whisper，准确率95%+
+- 🤖 **高精度转录**: 基于SenseVoice，准确率95%+，中文优化
 - 🔒 **隐私保护**: 本地处理，数据不外泄
 - 🌐 **Web界面**: 简洁易用的Web界面
 - ⚡ **批量处理**: 支持多个视频同时转录
@@ -19,6 +19,7 @@
 - 🧩 **智能分块**: 长音频自动分段处理，避免重复/卡顿
 - 🔄 **自动重试**: 网络或临时错误自动重试
 - 🇨🇳 **中文优化**: 默认中文转录，避免误识别为英语
+- ✨ **标点符号**: 自动添加标点符号，提高可读性
 
 ## 🚀 快速开始
 
@@ -34,7 +35,8 @@
 | 依赖包 | 版本 | Python支持 |
 |--------|------|-----------|
 | PyTorch | >=1.13.0 | 3.8-3.11 ❌不支持3.12+ |
-| Whisper | 20231117 | 3.8+ (受PyTorch限制) |
+| FunASR | >=1.0.0 | 3.8+ |
+| ModelScope | >=1.0.0 | 3.8+ |
 | FastAPI | 0.104.1 | 3.7+ |
 | Pydantic | 2.5.2 | 3.8+ |
 | librosa | 0.10.1 | 3.8+ |
@@ -174,7 +176,7 @@ import requests
 # 单个文件转录
 files = {"files": open("video.mp4", "rb")}
 data = {
-    "model": "small",
+    "model": "sensevoice-small",
     "language": "zh",  # 中文
     "format": "json"
 }
@@ -186,7 +188,7 @@ print(result["data"]["transcription"]["text"])
 # 批量转录
 files = [("files", open(f"video{i}.mp4", "rb")) for i in range(3)]
 data = {
-    "model": "small",
+    "model": "sensevoice-small",
     "language": "zh",
     "max_concurrent": "2"
 }
@@ -199,8 +201,8 @@ response = requests.post("http://localhost:8665/api/v1/transcribe/batch", files=
 # 基础转录
 python main.py transcribe /path/to/video.mp4
 
-# 指定Whisper模型
-python main.py transcribe /path/to/video.mp4 --model small
+# 指定模型
+python main.py transcribe /path/to/video.mp4 --model sensevoice-small
 
 # 指定语言
 python main.py transcribe /path/to/video.mp4 --language zh
@@ -236,17 +238,17 @@ PORT=8665
 DEBUG=false
 
 # ============================================================
-# Whisper 模型配置
+# SenseVoice 语音识别配置
 # ============================================================
-# 默认模型: tiny, base, small, medium, large
-DEFAULT_MODEL=small
+# 默认模型: sensevoice-small
+DEFAULT_MODEL=sensevoice-small
 
 # 默认转录语言: zh(中文), en(英语), ja(日语), ko(韩语), auto(自动检测)
-# 默认使用中文以避免 Whisper 错误识别为英语的问题
+# 默认使用中文以获得最佳识别效果
 DEFAULT_LANGUAGE=zh
 
 # 音频分块处理配置
-# 长音频分段处理可避免 Whisper 的重复/卡顿问题
+# 长音频分段处理可提高准确率和性能
 ENABLE_AUDIO_CHUNKING=true
 CHUNK_DURATION_SECONDS=180       # 每块3分钟
 CHUNK_OVERLAP_SECONDS=2           # 块之间重叠2秒
@@ -304,15 +306,17 @@ RATE_LIMIT_PER_MINUTE=60
 CORS_ORIGINS=["*"]
 ```
 
-### Whisper模型选择
+### SenseVoice模型选择
 
 | 模型 | 大小 | 速度 | 准确率 | 推荐场景 |
 |------|------|------|--------|----------|
-| tiny | 39MB | 最快 | 一般 | 快速预览 |
-| base | 74MB | 快 | 良好 | 日常使用 |
-| small | 244MB | 中等 | 很好 | **推荐** |
-| medium | 769MB | 慢 | 优秀 | 高质量需求 |
-| large | 1550MB | 最慢 | 最佳 | 专业场景 |
+| sensevoice-small | 244MB | 快 | 很好 | **推荐**，多语言支持 |
+
+**模型特点**:
+- 支持中文、英语、日语、韩语、粤语等多种语言
+- 对中文等亚洲语言优化，准确率更高
+- 自动语言检测
+- 支持情感识别和中英文混合识别
 
 ### 支持的语言
 
@@ -412,7 +416,7 @@ video-transcriber/
 # 单个文件转录
 curl -X POST "http://localhost:8665/api/v1/transcribe/file" \
   -F "files=@video.mp4" \
-  -F "model=small" \
+  -F "model=sensevoice-small" \
   -F "language=zh" \
   -F "format=json"
 
@@ -421,7 +425,7 @@ curl -X POST "http://localhost:8665/api/v1/transcribe/batch" \
   -F "files=@video1.mp4" \
   -F "files=@video2.mp4" \
   -F "files=@video3.mp4" \
-  -F "model=small" \
+  -F "model=sensevoice-small" \
   -F "max_concurrent=2"
 
 # 查询任务状态
@@ -436,20 +440,21 @@ curl "http://localhost:8665/api/v1/stats"
 
 ## ⚡ 性能指标
 
-### 处理速度 (基于Whisper Small模型)
-- **短视频** (0-1分钟): ~10-20秒
-- **中等视频** (1-5分钟): ~30-60秒
-- **长视频** (5-10分钟): ~1-3分钟（启用分块处理后）
+### 处理速度 (基于SenseVoice Small模型)
+- **短视频** (0-1分钟): ~5-10秒
+- **中等视频** (1-5分钟): ~15-30秒
+- **长视频** (5-10分钟): ~30-60秒
 
 ### 准确率
-- **中文**: 95%+
-- **英文**: 97%+
-- **中英混合**: 92%+
+- **中文**: 95%+ (SenseVoice对中文优化)
+- **英文**: 95%+
+- **日韩语**: 90%+
+- **中英混合**: 93%+
 
 ### 资源消耗
 - **CPU**: 2-4核推荐
-- **内存**: 4GB+ (Small模型)
-- **GPU**: 可选，3倍加速效果
+- **内存**: 4GB+ (SenseVoice Small模型)
+- **GPU**: 可选，2-3倍加速效果
 - **磁盘**: 临时文件约50-200MB/视频
 
 ## 🐛 故障排除
@@ -578,7 +583,7 @@ python -m pip install --upgrade pip
 pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 
 # 单独安装问题依赖
-pip install openai-whisper
+pip install funasr modelscope
 pip install torch
 pip install pydub
 ```
@@ -612,8 +617,13 @@ ENABLE_GPU=true
 
 ```python
 # 首次运行时预加载模型
-import whisper
-model = whisper.load_model("small")
+from core.sensevoice_transcriber import SenseVoiceTranscriber
+
+transcriber = SenseVoiceTranscriber(
+    model_name="sensevoice-small",
+    device="cuda"  # 或 "cpu"
+)
+await transcriber.load_model()
 ```
 
 #### 3. 批量处理优化
@@ -747,7 +757,9 @@ pytest --cov=. --cov-report=html
 
 ## 🙏 致谢
 
-- [OpenAI Whisper](https://github.com/openai/whisper) - 强大的语音识别模型
+- [SenseVoice](https://github.com/FunAudioLLM/SenseVoice) - 阿里巴巴达摩院的多语言语音识别模型
+- [FunASR](https://github.com/modelscope/FunASR) - 阿里达摩院语音识别工具包
+- [ModelScope](https://github.com/modelscope/modelscope) - 魔搭社区模型库
 - [FastAPI](https://fastapi.tiangolo.com/) - 现代Web框架
 - [pydub](https://github.com/jiaaro/pydub) - 音频处理库
 

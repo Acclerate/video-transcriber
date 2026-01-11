@@ -6,9 +6,10 @@
 from typing import Dict, List
 
 # ============================================================
-# Whisper 模型信息
+# 语音识别模型信息 (已弃用 - 使用 SenseVoice)
 # ============================================================
 
+# 旧的 Whisper 模型配置 (保留用于兼容性)
 WHISPER_MODELS: Dict[str, Dict[str, str]] = {
     "tiny": {
         "size": "39MB",
@@ -43,6 +44,16 @@ WHISPER_MODELS: Dict[str, Dict[str, str]] = {
 }
 
 WHISPER_MODEL_NAMES = list(WHISPER_MODELS.keys())
+
+# 当前使用的 SenseVoice 模型
+SENSEVOICE_MODELS = {
+    "sensevoice-small": {
+        "size": "244MB",
+        "speed": "4x",
+        "accuracy": "★★★★☆",
+        "description": "多语言语音识别，中文优化",
+    }
+}
 
 # ============================================================
 # 支持的语言
@@ -108,9 +119,13 @@ TASK_CHECK_INTERVAL = 10  # 任务检查间隔 10 秒
 # 音频处理常量
 # ============================================================
 
-# Whisper 推荐的音频参数
-WHISPER_SAMPLE_RATE = 16000  # 16kHz
-WHISPER_CHANNELS = 1  # 单声道
+# 语音识别推荐的音频参数 (16kHz 单声道)
+ASR_SAMPLE_RATE = 16000  # 16kHz
+ASR_CHANNELS = 1  # 单声道
+
+# 旧的 Whisper 音频参数别名 (保留用于兼容性)
+WHISPER_SAMPLE_RATE = ASR_SAMPLE_RATE
+WHISPER_CHANNELS = ASR_CHANNELS
 
 # 音频质量参数
 DEFAULT_SAMPLE_RATE = 44100  # 44.1kHz (MP3 导出)
@@ -153,7 +168,7 @@ ERROR_MESSAGES = {
     "file_too_large": "文件大小超过限制",
     "unsupported_format": "不支持的文件格式",
     "ffmpeg_not_found": "FFmpeg 未安装或不可用",
-    "model_not_loaded": "Whisper 模型未加载",
+    "model_not_loaded": "语音识别模型未加载",
     "transcription_failed": "转录失败",
     "audio_extraction_failed": "音频提取失败",
 }

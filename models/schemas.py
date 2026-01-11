@@ -126,7 +126,7 @@ class TranscriptionResult(BaseModel):
     confidence: float = Field(..., ge=0.0, le=1.0, description="整体置信度")
     segments: List[TranscriptionSegment] = Field(default=[], description="转录片段列表")
     processing_time: float = Field(..., description="处理时间(秒)")
-    whisper_model: WhisperModel = Field(..., description="使用的模型")
+    whisper_model: TranscriptionModel = Field(default=TranscriptionModel.SENSEVOICE_SMALL, description="使用的模型")
 
     model_config = {"protected_namespaces": ()}
 
@@ -144,7 +144,7 @@ class TranscriptionResult(BaseModel):
 
 class ProcessOptions(BaseModel):
     """处理选项"""
-    model: WhisperModel = Field(WhisperModel.SMALL, description="Whisper模型")
+    model: TranscriptionModel = Field(TranscriptionModel.SENSEVOICE_SMALL, description="语音识别模型")
     language: Language = Field(Language.AUTO, description="目标语言")
     with_timestamps: bool = Field(False, description="是否包含时间戳")
     output_format: OutputFormat = Field(OutputFormat.JSON, description="输出格式")
@@ -160,7 +160,7 @@ class TranscribeRequest(BaseModel):
     file_path: str = Field(..., description="视频文件路径")
     options: ProcessOptions = Field(
         default=ProcessOptions(
-            model=WhisperModel.SMALL,
+            model=TranscriptionModel.SENSEVOICE_SMALL,
             language=Language.AUTO,
             with_timestamps=False,
             output_format=OutputFormat.JSON,
@@ -176,7 +176,7 @@ class BatchTranscribeRequest(BaseModel):
     file_paths: List[str] = Field(..., min_length=1, max_length=20, description="视频文件路径列表")
     options: ProcessOptions = Field(
         default=ProcessOptions(
-            model=WhisperModel.SMALL,
+            model=TranscriptionModel.SENSEVOICE_SMALL,
             language=Language.AUTO,
             with_timestamps=False,
             output_format=OutputFormat.JSON,
@@ -338,7 +338,7 @@ class AppConfig(BaseModel):
     host: str = Field("0.0.0.0", description="服务主机")
     port: int = Field(8665, description="服务端口")
     debug: bool = Field(False, description="调试模式")
-    default_model: WhisperModel = Field(WhisperModel.SMALL, description="默认模型")
+    default_model: TranscriptionModel = Field(TranscriptionModel.SENSEVOICE_SMALL, description="默认模型")
     enable_gpu: bool = Field(True, description="启用GPU")
     temp_dir: str = Field("./temp", description="临时目录")
     max_file_size: int = Field(500, description="最大文件大小(MB)")
@@ -357,7 +357,7 @@ class AppConfig(BaseModel):
 
 __all__ = [
     # 枚举
-    "TaskStatus", "WhisperModel", "OutputFormat", "Language",
+    "TaskStatus", "TranscriptionModel", "OutputFormat", "Language",
     "VideoFormat", "WSMessageType", "ErrorCode",
 
     # 基础模型

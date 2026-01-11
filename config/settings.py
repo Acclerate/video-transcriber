@@ -50,21 +50,28 @@ class Settings(BaseSettings):
     RATE_LIMIT_PER_HOUR: int = 1000
 
     # ============================================================
-    # Whisper/SenseVoice 配置
+    # SenseVoice 语音识别配置
     # ============================================================
     DEFAULT_MODEL: str = "sensevoice-small"  # 使用 SenseVoice Small (多语言，中文优化)
     ENABLE_GPU: bool = True
-    MODEL_CACHE_DIR: str = "./models_cache"
+    # 模型缓存目录 - 默认使用 D 盘，避免占用 C 盘空间
+    MODEL_CACHE_DIR: str = "D:/models_cache/sensevoice"
 
     # 转录配置
-    # 默认使用中文以避免 Whisper 错误识别为英语
+    # 默认使用中文以获得最佳识别效果
     # 如需自动检测，可设置为 "auto"
     DEFAULT_LANGUAGE: str = "zh"
     DEFAULT_TEMPERATURE: float = 0.0
     ENABLE_WORD_TIMESTAMPS: bool = False
 
+    # 文本后处理配置
+    # 是否添加标点符号（使用FunASR的punctuation模型）
+    ENABLE_PUNCTUATION: bool = True
+    # 是否清理SenseVoice输出的特殊标记（如 <|zh|><|NEUTRAL|> 等）
+    CLEAN_SPECIAL_TOKENS: bool = True
+
     # 音频分块处理配置
-    # 长音频分段处理可避免 Whisper 的重复/卡顿问题
+    # 长音频分段处理可提高准确率和性能
     ENABLE_AUDIO_CHUNKING: bool = True
     CHUNK_DURATION_SECONDS: int = 180  # 每块3分钟（秒）
     CHUNK_OVERLAP_SECONDS: int = 2  # 块之间重叠时间（秒），避免接缝处丢失内容
@@ -104,7 +111,7 @@ class Settings(BaseSettings):
     # ============================================================
     # 音频处理配置
     # ============================================================
-    AUDIO_SAMPLE_RATE: int = 16000  # 16kHz (Whisper 推荐)
+    AUDIO_SAMPLE_RATE: int = 16000  # 16kHz (语音识别标准采样率)
     AUDIO_CHANNELS: int = 1  # 单声道
     AUDIO_BITRATE: str = "192k"
     TARGET_DBFS: float = -20.0  # 音量标准化目标
