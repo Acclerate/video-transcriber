@@ -299,10 +299,22 @@ class TranscriptionService:
     ) -> TranscriptionResult:
         """执行转录 (使用独立转录器实例)"""
         from core.sensevoice_transcriber import create_sensevoice_transcriber
+        from utils.audio.chunking import AudioChunker
+
+        # 获取音频时长
+        chunker = AudioChunker()
+        audio_duration = chunker.get_audio_duration(audio_path)
+
+        # 智能设备选择：超过 10 分钟的长音频使用 CPU 避免 OOM
+        device = "cuda" if options.enable_gpu else "cpu"
+        if audio_duration > 600 and device == "cuda":
+            logger.warning(f"音频时长 {audio_duration:.1f}s 超过 10 分钟，自动切换到 CPU 模式以避免 OOM")
+            device = "cpu"
 
         # 创建独立的转录器实例
         transcriber = create_sensevoice_transcriber(
             model_name=options.model.value if hasattr(options.model, 'value') else str(options.model),
+            device=device,
             model_cache_dir=self.config.MODEL_CACHE_DIR,
             enable_punctuation=getattr(self.config, 'ENABLE_PUNCTUATION', True),
             clean_special_tokens=getattr(self.config, 'CLEAN_SPECIAL_TOKENS', True),

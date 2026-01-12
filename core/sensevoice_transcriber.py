@@ -547,9 +547,10 @@ class SenseVoiceTranscriber:
                 if should_chunk:
                     logger.info(f"音频时长 {audio_duration:.1f}s 超过阈值 {self.min_duration_for_chunking}s，"
                                f"将启用分块处理（每块 {self.chunk_duration_seconds}s）")
-                    return asyncio.run(self._transcribe_with_chunking(
+                    # 使用同步分块处理方法
+                    return self._transcribe_with_chunking_sync(
                         audio_path, language_str, with_timestamps, progress_callback, start_time
-                    ))
+                    )
                 else:
                     logger.info(f"音频时长 {audio_duration:.1f}s 不需要分块处理")
             # ========== 音频分块处理结束 ==========
@@ -952,6 +953,205 @@ class SenseVoiceTranscriber:
             logger.error(f"错误详情: {str(e)}")
             logger.error(f"堆栈跟踪:\n{traceback.format_exc()}")
             raise Exception(f"SenseVoice 推理失败: {str(e)}")
+
+    def _transcribe_with_chunking_sync(
+        self,
+        audio_path: str,
+        language: str,
+        with_timestamps: bool,
+        progress_callback: Optional[Callable[[float], None]],
+        start_time: float
+    ) -> TranscriptionResult:
+        """
+        使用分块处理转录长音频（同步版本）
+
+        Args:
+            audio_path: 音频文件路径
+            language: 语言代码
+            with_timestamps: 是否包含时间戳
+            progress_callback: 进度回调
+            start_time: 开始时间
+
+        Returns:
+            TranscriptionResult: 转录结果
+        """
+        import time
+        import os
+        import asyncio
+
+        try:
+            # 分割音频 - 同步调用
+            logger.info("开始分割音频...")
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                chunks = loop.run_until_complete(self.audio_chunker.split_audio(
+                    audio_path,
+                    temp_dir=self.model_cache_dir
+                ))
+            finally:
+                loop.close()
+
+            if not chunks:
+                raise Exception("音频分割失败，未生成任何块")
+
+            logger.info(f"音频已分割为 {len(chunks)} 个块")
+
+            # 处理每个块
+            chunk_results = []
+            total_chunks = len(chunks)
+
+            for i, (chunk_path, chunk_start, chunk_end) in enumerate(chunks):
+                try:
+                    logger.info(f"处理块 {i+1}/{total_chunks}: {chunk_start:.1f}s - {chunk_end:.1f}s")
+
+                    # 更新进度
+                    if progress_callback:
+                        progress = 20 + (60 * (i + 1) / total_chunks)
+                        progress_callback(progress)
+
+                    # 处理单个块 - 同步调用
+                    chunk_result = self._transcribe_single_chunk_sync(
+                        chunk_path, language, with_timestamps, chunk_start, chunk_end
+                    )
+                    chunk_results.append(chunk_result)
+
+                    # 释放 GPU 内存
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+
+                except Exception as e:
+                    logger.error(f"处理块 {i+1} 失败: {e}")
+                    # 继续处理下一个块，不中断整个流程
+                    chunk_results.append({
+                        "text": "",
+                        "segments": [],
+                        "language": language,
+                        "confidence": 0.0,
+                        "processing_time": 0.0,
+                        "start_time": chunk_start,
+                        "end_time": chunk_end
+                    })
+
+            # 清理临时文件 - 同步调用
+            chunk_paths = [chunk[0] for chunk in chunks]
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                loop.run_until_complete(self.audio_chunker.cleanup_chunks(chunk_paths))
+            finally:
+                loop.close()
+
+            # 合并结果
+            logger.info("合并分块转录结果...")
+            merged_result = self.audio_chunker.merge_results(
+                chunk_results,
+                overlap_seconds=self.chunk_overlap_seconds
+            )
+
+            # 后处理：清理特殊标记和添加标点符号
+            final_text = merged_result.get("text", "")
+
+            if final_text:
+                # 清理特殊标记
+                final_text = self._clean_special_tokens(final_text)
+
+                # 添加标点符号（如果启用）
+                if self.enable_punctuation:
+                    try:
+                        final_text = self._add_punctuation(final_text, language)
+                    except Exception as e:
+                        logger.warning(f"标点符号处理失败: {e}")
+
+            # 构建最终的 TranscriptionResult
+            processing_time = time.time() - start_time
+            logger.info(f"分块转录完成，总耗时: {processing_time:.2f}秒")
+
+            return TranscriptionResult(
+                text=final_text.strip(),
+                language=merged_result.get("language", language),
+                confidence=merged_result.get("confidence", 0.95),
+                segments=[],
+                processing_time=processing_time,
+                whisper_model=self.model_name
+            )
+
+        except Exception as e:
+            import traceback
+            logger.error(f"分块转录失败: {e}")
+            logger.error(f"堆栈跟踪:\n{traceback.format_exc()}")
+            raise Exception(f"分块转录失败: {str(e)}")
+
+    def _transcribe_single_chunk_sync(
+        self,
+        chunk_path: str,
+        language: str,
+        with_timestamps: bool,
+        chunk_start: float,
+        chunk_end: float
+    ) -> dict:
+        """
+        转录单个音频块（同步版本）
+
+        Args:
+            chunk_path: 音频块文件路径
+            language: 语言代码
+            with_timestamps: 是否包含时间戳
+            chunk_start: 块开始时间
+            chunk_end: 块结束时间
+
+        Returns:
+            dict: 转录结果
+        """
+        import time
+
+        try:
+            start = time.time()
+
+            # 验证文件
+            if not os.path.exists(chunk_path):
+                raise Exception(f"音频块文件不存在: {chunk_path}")
+
+            file_size = os.path.getsize(chunk_path)
+            logger.debug(f"处理音频块: {chunk_path}, 大小: {file_size} 字节")
+
+            # SenseVoice 推理参数
+            rec_config_kwargs = {
+                "batch_size_s": 60,   # 每段60秒，避免 OOM
+                "merge_vad": True,
+                "merge_length_s": 5,
+            }
+
+            if language != "auto":
+                rec_config_kwargs["language"] = language
+            else:
+                rec_config_kwargs["language"] = "auto"
+
+            # 执行推理
+            result = self.model.generate(
+                input=chunk_path,
+                cache_path=self.model_cache_dir,
+                **rec_config_kwargs
+            )
+
+            processing_time = time.time() - start
+
+            # 提取文本
+            text = self._extract_text_from_result(result)
+
+            return {
+                "text": text,
+                "segments": [],
+                "language": language,
+                "confidence": 0.95,
+                "processing_time": processing_time,
+                "start_time": chunk_start,
+                "end_time": chunk_end
+            }
+
+        except Exception as e:
+            logger.error(f"处理音频块失败: {e}")
+            raise
 
     async def _transcribe_with_chunking(
         self,
