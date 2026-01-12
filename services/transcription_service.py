@@ -305,11 +305,18 @@ class TranscriptionService:
         chunker = AudioChunker()
         audio_duration = chunker.get_audio_duration(audio_path)
 
-        # 智能设备选择：超过 10 分钟的长音频使用 CPU 避免 OOM
+        # 智能设备选择：启用分块时可以使用 GPU 处理更长的音频
         device = "cuda" if options.enable_gpu else "cpu"
-        if audio_duration > 600 and device == "cuda":
-            logger.warning(f"音频时长 {audio_duration:.1f}s 超过 10 分钟，自动切换到 CPU 模式以避免 OOM")
+
+        # 只有在禁用分块且音频超过 30 分钟时才强制使用 CPU
+        enable_chunking = getattr(self.config, 'ENABLE_AUDIO_CHUNKING', True)
+        if not enable_chunking and audio_duration > 1800 and device == "cuda":
+            logger.warning(f"音频时长 {audio_duration:.1f}s 超过 30 分钟且分块未启用，自动切换到 CPU 模式以避免 OOM")
             device = "cpu"
+        elif enable_chunking and audio_duration > 1800 and device == "cuda":
+            logger.info(f"音频时长 {audio_duration:.1f}s 较长，但已启用分块处理，继续使用 GPU")
+
+        logger.info(f"音频时长: {audio_duration:.1f}s, 使用设备: {device}")
 
         # 创建独立的转录器实例
         transcriber = create_sensevoice_transcriber(

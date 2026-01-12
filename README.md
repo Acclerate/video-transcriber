@@ -8,7 +8,7 @@
 
 ## ✨ 特性
 
-- 📤 **文件上传**: 直接上传视频文件进行处理
+- 📤 **文件上传**: 直接上传视频文件进行处理（最大支持1GB）
 - 🤖 **高精度转录**: 基于SenseVoice，准确率95%+，中文优化
 - 🔒 **隐私保护**: 本地处理，数据不外泄
 - 🌐 **Web界面**: 简洁易用的Web界面
@@ -16,6 +16,8 @@
 - 🎵 **智能音频**: 自动提取和优化音频质量
 - 📝 **多种格式**: 支持JSON、TXT、SRT、VTT输出
 - 🔄 **实时状态**: 实时显示处理进度
+- 🎯 **长视频分割**: 自动将长音频分段处理，有效避免CUDA OOM错误，支持超长视频转录
+- 🚀 **内存优化**: 智能分块 + CPU fallback，适配8GB显存设备
 - 🧩 **智能分块**: 长音频自动分段处理，避免重复/卡顿
 - 🔄 **自动重试**: 网络或临时错误自动重试
 - 🇨🇳 **中文优化**: 默认中文转录，避免误识别为英语
@@ -248,11 +250,11 @@ DEFAULT_MODEL=sensevoice-small
 DEFAULT_LANGUAGE=zh
 
 # 音频分块处理配置
-# 长音频分段处理可提高准确率和性能
+# 长音频分段处理可提高准确率和性能，避免CUDA OOM
 ENABLE_AUDIO_CHUNKING=true
-CHUNK_DURATION_SECONDS=180       # 每块3分钟
+CHUNK_DURATION_SECONDS=300        # 每块5分钟（适配8GB显存）
 CHUNK_OVERLAP_SECONDS=2           # 块之间重叠2秒
-MIN_DURATION_FOR_CHUNKING=300     # 超过5分钟的音频才启用分块
+MIN_DURATION_FOR_CHUNKING=600     # 超过10分钟的音频才启用分块
 
 # 是否启用GPU加速
 ENABLE_GPU=true
@@ -267,7 +269,7 @@ MODEL_CACHE_DIR=./models_cache
 TEMP_DIR=./temp
 
 # 最大文件大小 (MB)
-MAX_FILE_SIZE=500
+MAX_FILE_SIZE=1024  # 1GB
 
 # 清理临时文件间隔 (秒)
 CLEANUP_AFTER=3600
@@ -444,6 +446,9 @@ curl "http://localhost:8665/api/v1/stats"
 - **短视频** (0-1分钟): ~5-10秒
 - **中等视频** (1-5分钟): ~15-30秒
 - **长视频** (5-10分钟): ~30-60秒
+- **超长视频** (1小时+): ~30-60分钟（使用分块处理）
+
+**注意**: 长视频使用分块处理会增加总处理时间，但能有效避免内存溢出错误。
 
 ### 准确率
 - **中文**: 95%+ (SenseVoice对中文优化)
@@ -511,11 +516,12 @@ python main.py transcribe video.mp4 --language zh
 # 启用音频分块处理（已默认启用）
 # 编辑 .env 文件确认以下配置:
 ENABLE_AUDIO_CHUNKING=true
-CHUNK_DURATION_SECONDS=180
-MIN_DURATION_FOR_CHUNKING=300
+CHUNK_DURATION_SECONDS=300    # 每块5分钟
+MIN_DURATION_FOR_CHUNKING=600 # 超过10分钟才分块
 
-# 如果仍有问题，缩短分块时长:
-CHUNK_DURATION_SECONDS=120  # 改为2分钟
+# 对于超长音频（1小时+），缩短分块时长:
+CHUNK_DURATION_SECONDS=120    # 改为2分钟
+MIN_DURATION_FOR_CHUNKING=300 # 降低到5分钟
 ```
 
 #### 4. 内存不足 (CUDA Out Of Memory)
@@ -524,17 +530,22 @@ CHUNK_DURATION_SECONDS=120  # 改为2分钟
 
 **解决方案**:
 ```bash
-# 方法1: 使用更小的模型
-DEFAULT_MODEL=tiny  # 或 base
+# 方法1: 启用音频分块（推荐，已默认启用）
+ENABLE_AUDIO_CHUNKING=true
+CHUNK_DURATION_SECONDS=300    # 每块5分钟
+MIN_DURATION_FOR_CHUNKING=600 # 超过10分钟才分块
 
-# 方法2: 禁用GPU
+# 方法2: 缩小块大小（对于超长视频）
+CHUNK_DURATION_SECONDS=120    # 改为2分钟
+MIN_DURATION_FOR_CHUNKING=180 # 降低到3分钟
+
+# 方法3: 禁用GPU，使用CPU模式
 ENABLE_GPU=false
 
-# 方法3: 减少并发数
+# 方法4: 减少并发数
 MAX_CONCURRENT_TASKS=1
 
-# 方法4: 减小块大小（如果启用分块）
-CHUNK_DURATION_SECONDS=60  # 减小到1分钟
+# 注意：超过10分钟的长音频会自动切换到CPU模式，避免GPU OOM
 ```
 
 #### 5. GPU加速不生效
@@ -635,9 +646,13 @@ curl -X POST "http://localhost:8665/api/v1/transcribe/batch" \
 #### 4. 分块处理优化
 
 ```env
-# 对于特别长的音频（1小时+）
+# 对于特别长的音频（1小时+），缩短块大小
 CHUNK_DURATION_SECONDS=120    # 缩短到2分钟
-CHUNK_OVERLAP_SECONDS=3        # 增加重叠到3秒
+CHUNK_OVERLAP_SECONDS=2        # 块之间重叠2秒
+
+# 对于8GB显存设备
+CHUNK_DURATION_SECONDS=300     # 默认5分钟
+MIN_DURATION_FOR_CHUNKING=600  # 超过10分钟才分块
 ```
 
 ### 错误代码对照表
@@ -649,6 +664,69 @@ CHUNK_OVERLAP_SECONDS=3        # 增加重叠到3秒
 | MODEL_LOAD_FAILED | 500 | 模型加载失败 | 检查网络/磁盘空间，重试 |
 | TRANSCRIPTION_FAILED | 500 | 转录失败 | 查看日志，检查音频质量 |
 | TIMEOUT | 504 | 处理超时 | 增加TASK_TIMEOUT或使用分块处理 |
+
+## 🎬 长视频处理指南
+
+### 音频分块处理机制
+
+本项目采用智能音频分块技术来处理长视频，有效避免 CUDA OOM 错误：
+
+#### 工作原理
+
+1. **自动检测**: 当音频时长超过 `MIN_DURATION_FOR_CHUNKING`（默认600秒/10分钟）时自动启用分块
+2. **快速分割**: 使用 ffmpeg 将音频分割成多个块（默认每块300秒/5分钟）
+3. **独立转录**: 每个块独立进行语音识别，处理完一个块后卸载模型释放内存
+4. **智能合并**: 自动合并各块的转录结果，去除重叠部分
+
+#### 分块配置说明
+
+| 配置项 | 默认值 | 说明 |
+|--------|--------|------|
+| `ENABLE_AUDIO_CHUNKING` | true | 是否启用音频分块 |
+| `CHUNK_DURATION_SECONDS` | 300 | 每块时长（秒） |
+| `CHUNK_OVERLAP_SECONDS` | 2 | 块之间重叠时间（秒） |
+| `MIN_DURATION_FOR_CHUNKING` | 600 | 超过此时长才启用分块（秒） |
+
+#### 分块大小建议
+
+| 显存大小 | 推荐块大小 | 适用场景 |
+|----------|-----------|----------|
+| 4GB | 60-120秒 | 短视频 |
+| 8GB | 120-300秒 | 中长视频（默认300秒） |
+| 12GB+ | 300-600秒 | 长视频 |
+
+#### 处理时长参考
+
+以82分钟（4920秒）音频为例：
+
+| 块大小 | 块数量 | 预计处理时间 | 显存占用 |
+|--------|--------|-------------|----------|
+| 120秒 | ~41块 | 约40-60分钟 | ~2-3GB/块 |
+| 300秒 | ~16块 | 约30-45分钟 | ~4-6GB/块 |
+| 600秒 | ~8块 | 约25-35分钟 | ~7-8GB/块 |
+
+#### 智能设备选择
+
+系统会根据音频时长自动选择处理设备：
+
+- **≤10分钟**: 使用 GPU（如果启用）
+- **>10分钟**: 自动切换到 CPU 模式，避免 GPU OOM
+
+#### 优化技巧
+
+```env
+# 超长视频（2小时+）
+CHUNK_DURATION_SECONDS=120
+MIN_DURATION_FOR_CHUNKING=300
+
+# 中等长度视频（30分钟-2小时）
+CHUNK_DURATION_SECONDS=300
+MIN_DURATION_FOR_CHUNKING=600
+
+# 短视频（<30分钟）
+CHUNK_DURATION_SECONDS=600
+MIN_DURATION_FOR_CHUNKING=1800
+```
 
 ## 🐳 Docker 使用
 

@@ -18,9 +18,9 @@ class AudioChunker:
 
     def __init__(
         self,
-        chunk_duration: int = 180,  # 3分钟
+        chunk_duration: int = 300,  # 5分钟
         overlap: int = 2,  # 2秒重叠
-        min_duration_for_chunking: int = 300  # 5分钟以上才分块
+        min_duration_for_chunking: int = 600  # 10分钟以上才分块
     ):
         """
         初始化音频分块器
@@ -110,6 +110,11 @@ class AudioChunker:
                 # 计算块的结束时间
                 end_time = min(start_time + self.chunk_duration, total_duration)
 
+                # 跳过太小的块（小于300秒）
+                if end_time - start_time < 300:
+                    logger.debug(f"跳过太小的块: {start_time:.1f}s - {end_time:.1f}s")
+                    break
+
                 # 输出文件路径
                 chunk_path = temp_path / f"chunk_{chunk_index}.wav"
 
@@ -137,6 +142,11 @@ class AudioChunker:
                 chunks.append((str(chunk_path), start_time, end_time))
 
                 # 移动到下一块（减去重叠时间）
+                # 如果到达末尾，退出循环
+                if end_time >= total_duration - 1:
+                    logger.debug(f"到达音频末尾，停止分割")
+                    break
+
                 start_time = end_time - self.overlap
                 chunk_index += 1
 
@@ -273,9 +283,9 @@ audio_chunker = AudioChunker()
 
 
 def get_audio_chunker(
-    chunk_duration: int = 180,
+    chunk_duration: int = 300,
     overlap: int = 2,
-    min_duration: int = 300
+    min_duration: int = 600
 ) -> AudioChunker:
     """
     获取音频分块器实例

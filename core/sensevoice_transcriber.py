@@ -144,13 +144,21 @@ class SenseVoiceTranscriber:
         if device == "auto" or device is None:
             if torch.cuda.is_available():
                 device = "cuda"
-                logger.info("检测到CUDA，SenseVoice 使用GPU加速")
+                device_count = torch.cuda.device_count()
+                device_name = torch.cuda.get_device_name(0) if device_count > 0 else "Unknown"
+                logger.info(f"检测到CUDA ({device_count} 个设备: {device_name})，SenseVoice 使用GPU加速")
             else:
                 device = "cpu"
-                logger.info("未检测到CUDA，SenseVoice 使用CPU")
+                logger.warning("未检测到CUDA，SenseVoice 使用CPU（请安装带CUDA支持的PyTorch）")
         elif device == "cuda" and not torch.cuda.is_available():
             logger.warning("指定使用CUDA但未检测到，回退到CPU")
+            logger.warning("如需使用GPU，请安装: pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu118")
             device = "cpu"
+        elif device == "cuda":
+            # 验证 CUDA 实际可用
+            device_count = torch.cuda.device_count()
+            device_name = torch.cuda.get_device_name(0) if device_count > 0 else "Unknown"
+            logger.info(f"CUDA 设备信息: {device_count} 个设备, 主设备: {device_name}")
 
         return device
 
@@ -206,17 +214,46 @@ class SenseVoiceTranscriber:
 
         start_time = time.time()
 
-        # 使用 funasr 加载模型
+        # FunASR 的 device 参数在某些版本中不生效
+        # 直接使用 device="cuda" 可能无法正确加载到 GPU
+        # 解决方案: 先加载到 CPU，然后显式调用 .cuda() 移到 GPU
+        logger.info(f"正在加载 SenseVoice 模型 (目标设备: {self.device})...")
         self.model = AutoModel(
             model=model_path,
-            device=self.device,
-            cache_dir=self.model_cache_dir,  # 明确指定缓存目录
+            device="cpu",
+            cache_dir=self.model_cache_dir,
             disable_pbar=False,
             disable_log=False,
         )
 
+        # 如果需要使用 GPU，显式移到 GPU
+        if self.device == "cuda" and torch.cuda.is_available():
+            logger.info("正在将模型移至 GPU...")
+            try:
+                # 方法1: 尝试移动 AutoModel 包装的模型
+                if hasattr(self.model, 'model') and hasattr(self.model.model, 'to'):
+                    self.model.model.to("cuda")
+                    logger.info("✓ 模型已移至 GPU (model.model.to('cuda'))")
+                # 方法2: 尝试直接调用 .to()
+                elif hasattr(self.model, 'to'):
+                    self.model.to("cuda")
+                    logger.info("✓ 模型已移至 GPU (model.to('cuda'))")
+                else:
+                    logger.warning("⚠️ 无法将模型移至 GPU，使用 CPU 模式")
+            except Exception as e:
+                logger.warning(f"模型移至 GPU 失败: {e}，继续使用 CPU")
+
         load_time = time.time() - start_time
         logger.info(f"SenseVoice 模型加载完成 (耗时 {load_time:.2f} 秒)")
+
+        # 检查 GPU 显存使用
+        if self.device == "cuda" and torch.cuda.is_available():
+            allocated = torch.cuda.memory_allocated(0) / 1024**2
+            cached = torch.cuda.memory_reserved(0) / 1024**2
+            logger.info(f"GPU 显存使用: 已分配 {allocated:.2f} MB, 已缓存 {cached:.2f} MB")
+
+            if allocated == 0:
+                logger.warning("⚠️ GPU 显存占用为 0，模型可能在 CPU 上运行！")
 
         return self.model
 
@@ -373,13 +410,27 @@ class SenseVoiceTranscriber:
         for model_path in punct_model_paths:
             try:
                 logger.info(f"尝试加载标点符号模型: {model_path}")
+                # 先加载到 CPU
                 model = AutoModel(
                     model=model_path,
-                    device=self.device,
+                    device="cpu",
                     cache_dir=self.model_cache_dir,
                     disable_pbar=False,
                     disable_log=False,
                 )
+
+                # 如果需要使用 GPU，显式移到 GPU
+                if self.device == "cuda" and torch.cuda.is_available():
+                    try:
+                        if hasattr(model, 'model') and hasattr(model.model, 'to'):
+                            model.model.to("cuda")
+                            logger.info("✓ 标点符号模型已移至 GPU")
+                        elif hasattr(model, 'to'):
+                            model.to("cuda")
+                            logger.info("✓ 标点符号模型已移至 GPU")
+                    except Exception as e:
+                        logger.warning(f"标点符号模型移至 GPU 失败: {e}，继续使用 CPU")
+
                 logger.info(f"标点符号模型加载成功: {model_path}")
                 return model
             except Exception as e:
@@ -1454,9 +1505,9 @@ def create_sensevoice_transcriber(
     enable_punctuation: bool = True,
     clean_special_tokens: bool = True,
     enable_chunking: bool = True,
-    chunk_duration_seconds: int = 180,
+    chunk_duration_seconds: int = 300,
     chunk_overlap_seconds: int = 2,
-    min_duration_for_chunking: int = 300
+    min_duration_for_chunking: int = 600
 ) -> SenseVoiceTranscriber:
     """
     创建 SenseVoice 转录器实例
