@@ -305,7 +305,12 @@ class TranscriptionService:
             model_name=options.model.value if hasattr(options.model, 'value') else str(options.model),
             model_cache_dir=self.config.MODEL_CACHE_DIR,
             enable_punctuation=getattr(self.config, 'ENABLE_PUNCTUATION', True),
-            clean_special_tokens=getattr(self.config, 'CLEAN_SPECIAL_TOKENS', True)
+            clean_special_tokens=getattr(self.config, 'CLEAN_SPECIAL_TOKENS', True),
+            # 音频分块处理配置
+            enable_chunking=getattr(self.config, 'ENABLE_AUDIO_CHUNKING', True),
+            chunk_duration_seconds=getattr(self.config, 'CHUNK_DURATION_SECONDS', 180),
+            chunk_overlap_seconds=getattr(self.config, 'CHUNK_OVERLAP_SECONDS', 2),
+            min_duration_for_chunking=getattr(self.config, 'MIN_DURATION_FOR_CHUNKING', 300)
         )
 
         def update_progress(progress: float):
@@ -313,11 +318,6 @@ class TranscriptionService:
                 # 转录占 50-95%
                 total_progress = 50 + (progress * 0.45)
                 progress_callback(task_id, total_progress, "正在进行语音识别...")
-
-        # SenseVoice 本身可以很好地处理长音频，暂时不使用分块处理
-        # 如果启用分块处理配置，这里记录日志但不使用分块
-        if self.config.ENABLE_AUDIO_CHUNKING:
-            logger.info("检测到音频分块处理配置已启用，但 SenseVoice 将直接处理完整音频")
 
         result = await transcriber.transcribe_audio(
             audio_path=audio_path,

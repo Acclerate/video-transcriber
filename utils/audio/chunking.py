@@ -1,31 +1,20 @@
 """
 音频分块处理模块
 将长音频分割成小块以提高语音识别的准确率和性能
+使用 ffmpeg 进行快速分割
 """
 
 import os
+import subprocess
 import tempfile
 from pathlib import Path
 from typing import List, Tuple, Optional
-import asyncio
 
 from loguru import logger
 
-# 尝试导入 pydub，如果不可用则禁用分块功能
-try:
-    from pydub import AudioSegment
-    PYDUB_AVAILABLE = True
-except ImportError:
-    PYDUB_AVAILABLE = False
-    AudioSegment = None
-    logger.warning(
-        "pydub 未安装，音频分块功能将不可用。"
-        "请运行: pip install pydub"
-    )
-
 
 class AudioChunker:
-    """音频分块处理器"""
+    """音频分块处理器 - 使用 ffmpeg 快速分割"""
 
     def __init__(
         self,
@@ -41,9 +30,9 @@ class AudioChunker:
             overlap: 块之间重叠时间（秒）
             min_duration_for_chunking: 最小分块时长（秒）
         """
-        self.chunk_duration = chunk_duration * 1000  # 转换为毫秒
-        self.overlap = overlap * 1000  # 转换为毫秒
-        self.min_duration_for_chunking = min_duration_for_chunking * 1000
+        self.chunk_duration = chunk_duration
+        self.overlap = overlap
+        self.min_duration_for_chunking = min_duration_for_chunking
 
     def should_chunk(self, audio_path: str) -> bool:
         """
@@ -55,21 +44,12 @@ class AudioChunker:
         Returns:
             bool: 是否需要分块
         """
-        if not PYDUB_AVAILABLE:
-            logger.warning("pydub 不可用，跳过分块处理")
-            return False
-
-        try:
-            audio = AudioSegment.from_file(audio_path)
-            duration_ms = len(audio)
-            return duration_ms > self.min_duration_for_chunking
-        except Exception as e:
-            logger.warning(f"无法读取音频时长: {e}")
-            return False
+        duration = self.get_audio_duration(audio_path)
+        return duration > self.min_duration_for_chunking
 
     def get_audio_duration(self, audio_path: str) -> float:
         """
-        获取音频时长（秒）
+        获取音频时长（秒）- 使用 ffprobe
 
         Args:
             audio_path: 音频文件路径
@@ -77,13 +57,19 @@ class AudioChunker:
         Returns:
             float: 时长（秒）
         """
-        if not PYDUB_AVAILABLE:
-            logger.warning("pydub 不可用，无法获取音频时长")
-            return 0.0
-
         try:
-            audio = AudioSegment.from_file(audio_path)
-            return len(audio) / 1000.0
+            cmd = [
+                'ffprobe', '-v', 'error',
+                '-show_entries', 'format=duration',
+                '-of', 'default=noprint_wrappers=1:nokey=1',
+                audio_path
+            ]
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            if result.returncode == 0:
+                return float(result.stdout.strip())
+            else:
+                logger.warning(f"ffprobe 获取音频时长失败: {result.stderr}")
+                return 0.0
         except Exception as e:
             logger.error(f"获取音频时长失败: {e}")
             return 0.0
@@ -94,7 +80,7 @@ class AudioChunker:
         temp_dir: str = None
     ) -> List[Tuple[str, float, float]]:
         """
-        将音频分割成多个块
+        将音频分割成多个块 - 使用 ffmpeg 快速分割
 
         Args:
             audio_path: 音频文件路径
@@ -112,37 +98,56 @@ class AudioChunker:
         temp_path.mkdir(parents=True, exist_ok=True)
 
         try:
-            # 加载音频
-            audio = AudioSegment.from_file(audio_path)
-            duration_ms = len(audio)
-
-            logger.info(f"开始分割音频: 总时长 {duration_ms / 1000:.1f} 秒")
+            # 获取音频总时长
+            total_duration = self.get_audio_duration(audio_path)
+            logger.info(f"开始分割音频: 总时长 {total_duration:.1f} 秒")
 
             chunks = []
-            start_ms = 0
+            start_time = 0.0
             chunk_index = 0
 
-            while start_ms < duration_ms:
+            while start_time < total_duration:
                 # 计算块的结束时间
-                end_ms = min(start_ms + self.chunk_duration, duration_ms)
+                end_time = min(start_time + self.chunk_duration, total_duration)
 
-                # 提取音频块
-                chunk = audio[start_ms:end_ms]
-
-                # 保存为临时文件
+                # 输出文件路径
                 chunk_path = temp_path / f"chunk_{chunk_index}.wav"
-                chunk.export(chunk_path, format="wav")
 
-                # 记录时间信息（秒）
-                start_time = start_ms / 1000.0
-                end_time = end_ms / 1000.0
-
-                chunks.append((str(chunk_path), start_time, end_time))
+                # 使用 ffmpeg 提取音频片段
+                duration = end_time - start_time
+                cmd = [
+                    'ffmpeg', '-y', '-v', 'error',
+                    '-ss', str(start_time),
+                    '-i', audio_path,
+                    '-t', str(duration),
+                    '-acodec', 'copy',
+                    str(chunk_path)
+                ]
 
                 logger.debug(f"创建块 {chunk_index}: {start_time:.1f}s - {end_time:.1f}s")
 
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+                if result.returncode != 0:
+                    logger.warning(f"ffmpeg 分割块 {chunk_index} 失败: {result.stderr}")
+                    # 尝试使用 acodec pcm_s16le 而不是 copy
+                    cmd = [
+                        'ffmpeg', '-y', '-v', 'error',
+                        '-ss', str(start_time),
+                        '-i', audio_path,
+                        '-t', str(duration),
+                        '-acodec', 'pcm_s16le',
+                        '-ar', '16000',
+                        '-ac', '1',
+                        str(chunk_path)
+                    ]
+                    result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+                    if result.returncode != 0:
+                        raise Exception(f"ffmpeg 分割失败: {result.stderr}")
+
+                chunks.append((str(chunk_path), start_time, end_time))
+
                 # 移动到下一块（减去重叠时间）
-                start_ms = end_ms - self.overlap
+                start_time = end_time - self.overlap
                 chunk_index += 1
 
             logger.info(f"音频分割完成: 共 {len(chunks)} 块")

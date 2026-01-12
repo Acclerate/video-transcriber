@@ -73,7 +73,7 @@ class Settings(BaseSettings):
     # 音频分块处理配置
     # 长音频分段处理可提高准确率和性能
     ENABLE_AUDIO_CHUNKING: bool = True
-    CHUNK_DURATION_SECONDS: int = 180  # 每块3分钟（秒）
+    CHUNK_DURATION_SECONDS: int = 600  # 每块10分钟（秒）
     CHUNK_OVERLAP_SECONDS: int = 2  # 块之间重叠时间（秒），避免接缝处丢失内容
     MIN_DURATION_FOR_CHUNKING: int = 300  # 超过5分钟的音频才启用分块处理
 
@@ -95,7 +95,7 @@ class Settings(BaseSettings):
     # ============================================================
     TEMP_DIR: str = "./temp"
     OUTPUT_DIR: str = "./output"
-    MAX_FILE_SIZE: int = 500  # MB
+    MAX_FILE_SIZE: int = 1024  # MB (1GB)
     CLEANUP_AFTER: int = 3600  # seconds
 
     # 支持的格式

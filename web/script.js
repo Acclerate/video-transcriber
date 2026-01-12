@@ -147,10 +147,10 @@ class VideoTranscriberUI {
             return;
         }
 
-        // 验证文件大小 (500MB)
-        const maxSize = 500 * 1024 * 1024;
+        // 验证文件大小 (1GB)
+        const maxSize = 1024 * 1024 * 1024;
         if (file.size > maxSize) {
-            this.showToast('文件大小不能超过500MB', 'warning');
+            this.showToast('文件大小不能超过1GB', 'warning');
             return;
         }
 
@@ -184,7 +184,7 @@ class VideoTranscriberUI {
         }
 
         // 验证文件类型和大小
-        const maxSize = 500 * 1024 * 1024;
+        const maxSize = 1024 * 1024 * 1024;  // 1GB
         this.selectedBatchFiles = [];
 
         for (const file of Array.from(files)) {

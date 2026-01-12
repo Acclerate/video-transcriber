@@ -31,6 +31,15 @@ from models.schemas import (
     OutputFormat
 )
 
+# 导入音频分块处理模块
+try:
+    from utils.audio.chunking import AudioChunker, get_audio_chunker
+    CHUNKING_AVAILABLE = True
+except ImportError:
+    CHUNKING_AVAILABLE = False
+    AudioChunker = None
+    logger.warning("音频分块模块不可用，长音频处理可能会遇到显存不足问题")
+
 
 class SenseVoiceTranscriber:
     """SenseVoice 语音转录器"""
@@ -53,7 +62,11 @@ class SenseVoiceTranscriber:
         model_cache_dir: Optional[str] = None,
         language: str = "auto",
         enable_punctuation: bool = True,
-        clean_special_tokens: bool = True
+        clean_special_tokens: bool = True,
+        enable_chunking: bool = True,
+        chunk_duration_seconds: int = 180,
+        chunk_overlap_seconds: int = 2,
+        min_duration_for_chunking: int = 300
     ):
         """
         初始化 SenseVoice 转录器
@@ -65,6 +78,10 @@ class SenseVoiceTranscriber:
             language: 默认语言 ('auto', 'zh', 'en', 'yue', 'ja', 'ko')
             enable_punctuation: 是否添加标点符号
             clean_special_tokens: 是否清理特殊标记（如 <|zh|><|NEUTRAL|> 等）
+            enable_chunking: 是否启用音频分块处理（推荐用于长音频）
+            chunk_duration_seconds: 每块时长（秒），默认180秒（3分钟）
+            chunk_overlap_seconds: 块之间重叠时间（秒），默认2秒
+            min_duration_for_chunking: 超过此时长（秒）才启用分块，默认300秒（5分钟）
         """
         if not FUNASR_AVAILABLE:
             raise RuntimeError(
@@ -76,6 +93,27 @@ class SenseVoiceTranscriber:
         self.default_language = language
         self.enable_punctuation = enable_punctuation
         self.clean_special_tokens = clean_special_tokens
+
+        # 音频分块处理配置
+        self.enable_chunking = enable_chunking and CHUNKING_AVAILABLE
+        self.chunk_duration_seconds = chunk_duration_seconds
+        self.chunk_overlap_seconds = chunk_overlap_seconds
+        self.min_duration_for_chunking = min_duration_for_chunking
+
+        # 初始化音频分块器
+        self.audio_chunker = None
+        if self.enable_chunking:
+            try:
+                self.audio_chunker = get_audio_chunker(
+                    chunk_duration=chunk_duration_seconds,
+                    overlap=chunk_overlap_seconds,
+                    min_duration=min_duration_for_chunking
+                )
+                logger.info(f"音频分块处理已启用: chunk_duration={chunk_duration_seconds}s, "
+                           f"overlap={chunk_overlap_seconds}s, min_duration={min_duration_for_chunking}s")
+            except Exception as e:
+                logger.warning(f"音频分块器初始化失败: {e}，将禁用分块处理")
+                self.enable_chunking = False
 
         # 确保缓存目录存在
         Path(self.model_cache_dir).mkdir(parents=True, exist_ok=True)
@@ -499,6 +537,23 @@ class SenseVoiceTranscriber:
             logger.info(f"开始 SenseVoice 转录: {audio_path}")
             logger.info(f"语言模式: {language_str}, 时间戳: {with_timestamps}")
 
+            # ========== 音频分块处理 ==========
+            # 检查是否需要对音频进行分块处理
+            should_chunk = False
+            if self.enable_chunking and self.audio_chunker:
+                should_chunk = self.audio_chunker.should_chunk(audio_path)
+                audio_duration = self.audio_chunker.get_audio_duration(audio_path)
+
+                if should_chunk:
+                    logger.info(f"音频时长 {audio_duration:.1f}s 超过阈值 {self.min_duration_for_chunking}s，"
+                               f"将启用分块处理（每块 {self.chunk_duration_seconds}s）")
+                    return asyncio.run(self._transcribe_with_chunking(
+                        audio_path, language_str, with_timestamps, progress_callback, start_time
+                    ))
+                else:
+                    logger.info(f"音频时长 {audio_duration:.1f}s 不需要分块处理")
+            # ========== 音频分块处理结束 ==========
+
             # SenseVoice 推理参数
             rec_config_kwargs = {
                 "batch_size_s": 300,  # 静音切断
@@ -897,6 +952,272 @@ class SenseVoiceTranscriber:
             logger.error(f"堆栈跟踪:\n{traceback.format_exc()}")
             raise Exception(f"SenseVoice 推理失败: {str(e)}")
 
+    async def _transcribe_with_chunking(
+        self,
+        audio_path: str,
+        language: str,
+        with_timestamps: bool,
+        progress_callback: Optional[Callable[[float], None]],
+        start_time: float
+    ) -> TranscriptionResult:
+        """
+        使用分块处理转录长音频
+
+        Args:
+            audio_path: 音频文件路径
+            language: 语言代码
+            with_timestamps: 是否包含时间戳
+            progress_callback: 进度回调
+            start_time: 开始时间
+
+        Returns:
+            TranscriptionResult: 转录结果
+        """
+        import time
+        import os
+
+        try:
+            # 分割音频
+            logger.info("开始分割音频...")
+            chunks = await self.audio_chunker.split_audio(
+                audio_path,
+                temp_dir=self.model_cache_dir
+            )
+
+            if not chunks:
+                raise Exception("音频分割失败，未生成任何块")
+
+            logger.info(f"音频已分割为 {len(chunks)} 个块")
+
+            # 处理每个块
+            chunk_results = []
+            total_chunks = len(chunks)
+
+            for i, (chunk_path, chunk_start, chunk_end) in enumerate(chunks):
+                try:
+                    logger.info(f"处理块 {i+1}/{total_chunks}: {chunk_start:.1f}s - {chunk_end:.1f}s")
+
+                    # 更新进度
+                    if progress_callback:
+                        progress = 20 + (60 * (i + 1) / total_chunks)
+                        progress_callback(progress)
+
+                    # 处理单个块
+                    chunk_result = await self._transcribe_single_chunk(
+                        chunk_path, language, with_timestamps, chunk_start, chunk_end
+                    )
+                    chunk_results.append(chunk_result)
+
+                    # 释放 GPU 内存
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+
+                except Exception as e:
+                    logger.error(f"处理块 {i+1} 失败: {e}")
+                    # 继续处理下一个块，不中断整个流程
+                    chunk_results.append({
+                        "text": "",
+                        "segments": [],
+                        "language": language,
+                        "confidence": 0.0,
+                        "processing_time": 0.0,
+                        "start_time": chunk_start,
+                        "end_time": chunk_end
+                    })
+
+            # 清理临时文件
+            chunk_paths = [chunk[0] for chunk in chunks]
+            await self.audio_chunker.cleanup_chunks(chunk_paths)
+
+            # 合并结果
+            logger.info("合并分块转录结果...")
+            merged_result = self.audio_chunker.merge_results(
+                chunk_results,
+                overlap_seconds=self.chunk_overlap_seconds
+            )
+
+            # 后处理：清理特殊标记和添加标点符号
+            final_text = merged_result.get("text", "")
+
+            if final_text:
+                # 清理特殊标记
+                final_text = self._clean_special_tokens(final_text)
+
+                # 添加标点符号（如果启用）
+                if self.enable_punctuation:
+                    try:
+                        final_text = self._add_punctuation(final_text, language)
+                    except Exception as e:
+                        logger.warning(f"标点符号处理失败: {e}")
+
+            # 构建最终的 TranscriptionResult
+            processing_time = time.time() - start_time
+            logger.info(f"分块转录完成，总耗时: {processing_time:.2f}秒")
+
+            return TranscriptionResult(
+                text=final_text.strip(),
+                language=merged_result.get("language", language),
+                confidence=merged_result.get("confidence", 0.95),
+                segments=[],
+                processing_time=processing_time,
+                whisper_model=self.model_name
+            )
+
+        except Exception as e:
+            import traceback
+            logger.error(f"分块转录失败: {e}")
+            logger.error(f"堆栈跟踪:\n{traceback.format_exc()}")
+            raise Exception(f"分块转录失败: {str(e)}")
+
+    async def _transcribe_single_chunk(
+        self,
+        chunk_path: str,
+        language: str,
+        with_timestamps: bool,
+        chunk_start: float,
+        chunk_end: float
+    ) -> dict:
+        """
+        转录单个音频块
+
+        Args:
+            chunk_path: 音频块文件路径
+            language: 语言代码
+            with_timestamps: 是否包含时间戳
+            chunk_start: 块开始时间
+            chunk_end: 块结束时间
+
+        Returns:
+            dict: 转录结果
+        """
+        import time
+
+        try:
+            start = time.time()
+
+            # 验证文件
+            if not os.path.exists(chunk_path):
+                raise Exception(f"音频块文件不存在: {chunk_path}")
+
+            file_size = os.path.getsize(chunk_path)
+            logger.debug(f"处理音频块: {chunk_path}, 大小: {file_size} 字节")
+
+            # SenseVoice 推理参数
+            rec_config_kwargs = {
+                "batch_size_s": 300,
+                "merge_vad": True,
+                "merge_length_s": 5,
+            }
+
+            if language != "auto":
+                rec_config_kwargs["language"] = language
+            else:
+                rec_config_kwargs["language"] = "auto"
+
+            # 执行推理
+            result = self.model.generate(
+                input=chunk_path,
+                cache_path=self.model_cache_dir,
+                **rec_config_kwargs
+            )
+
+            processing_time = time.time() - start
+
+            # 提取文本
+            text = self._extract_text_from_result(result)
+
+            return {
+                "text": text,
+                "segments": [],
+                "language": language,
+                "confidence": 0.95,
+                "processing_time": processing_time,
+                "start_time": chunk_start,
+                "end_time": chunk_end
+            }
+
+        except Exception as e:
+            logger.error(f"处理音频块失败: {e}")
+            raise
+
+    def _extract_text_from_result(self, result) -> str:
+        """
+        从 SenseVoice 结果中提取文本
+
+        Args:
+            result: SenseVoice 推理结果
+
+        Returns:
+            str: 提取的文本
+        """
+        text = ""
+
+        try:
+            # 检查结果是否为空
+            if result is None:
+                return ""
+
+            # 检查结果是否为整数（可能是错误代码）
+            if isinstance(result, int):
+                logger.warning(f"SenseVoice 返回整数错误代码: {result}")
+                return ""
+
+            # 检查结果是否为字符串
+            if isinstance(result, str):
+                if result.strip().isdigit() or result == "0":
+                    return ""
+                return result
+
+            # 检查结果是否为列表
+            if not hasattr(result, '__len__') or len(result) == 0:
+                return ""
+
+            # 处理第一个结果
+            try:
+                first_result = result[0]
+            except (IndexError, TypeError, KeyError):
+                return ""
+
+            # 检查 first_result 是否为特殊类型
+            if isinstance(first_result, (int, float)):
+                return ""
+
+            if isinstance(first_result, str):
+                if first_result.strip().isdigit() or first_result == "0":
+                    return ""
+                return first_result
+
+            # 检查是否有长度属性
+            if not hasattr(first_result, '__len__'):
+                return str(first_result)
+
+            if len(first_result) == 0:
+                return ""
+
+            # 提取文本
+            if isinstance(first_result, dict):
+                text = first_result.get("sentence", "")
+                if not text:
+                    text = first_result.get("text", "")
+                if not text:
+                    text = str(first_result)
+            elif isinstance(first_result, (list, tuple)):
+                for item in first_result:
+                    if isinstance(item, str):
+                        text += item
+                    elif isinstance(item, dict):
+                        sentence = item.get("sentence", "")
+                        if not sentence:
+                            sentence = item.get("text", "")
+                        text += sentence
+            else:
+                text = str(first_result)
+
+        except Exception as e:
+            logger.warning(f"提取文本时出错: {e}")
+
+        return text
+
     def get_model_info(self) -> Dict[str, Any]:
         """获取当前模型信息"""
         config = self.MODEL_CONFIGS.get(self.model_name, {})
@@ -930,7 +1251,11 @@ def create_sensevoice_transcriber(
     model_cache_dir: Optional[str] = None,
     language: str = "auto",
     enable_punctuation: bool = True,
-    clean_special_tokens: bool = True
+    clean_special_tokens: bool = True,
+    enable_chunking: bool = True,
+    chunk_duration_seconds: int = 180,
+    chunk_overlap_seconds: int = 2,
+    min_duration_for_chunking: int = 300
 ) -> SenseVoiceTranscriber:
     """
     创建 SenseVoice 转录器实例
@@ -942,6 +1267,10 @@ def create_sensevoice_transcriber(
         language: 默认语言
         enable_punctuation: 是否添加标点符号
         clean_special_tokens: 是否清理特殊标记
+        enable_chunking: 是否启用音频分块处理（推荐用于长音频）
+        chunk_duration_seconds: 每块时长（秒），默认180秒（3分钟）
+        chunk_overlap_seconds: 块之间重叠时间（秒），默认2秒
+        min_duration_for_chunking: 超过此时长（秒）才启用分块，默认300秒（5分钟）
 
     Returns:
         SenseVoiceTranscriber: SenseVoice 转录器实例
@@ -952,7 +1281,11 @@ def create_sensevoice_transcriber(
         model_cache_dir=model_cache_dir,
         language=language,
         enable_punctuation=enable_punctuation,
-        clean_special_tokens=clean_special_tokens
+        clean_special_tokens=clean_special_tokens,
+        enable_chunking=enable_chunking,
+        chunk_duration_seconds=chunk_duration_seconds,
+        chunk_overlap_seconds=chunk_overlap_seconds,
+        min_duration_for_chunking=min_duration_for_chunking
     )
 
 
