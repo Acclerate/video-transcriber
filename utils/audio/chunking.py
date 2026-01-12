@@ -113,14 +113,17 @@ class AudioChunker:
                 # 输出文件路径
                 chunk_path = temp_path / f"chunk_{chunk_index}.wav"
 
-                # 使用 ffmpeg 提取音频片段
+                # 使用 ffmpeg 提取音频片段，直接转为 SenseVoice 需要的格式
+                # 这样既快又能避免后续重新处理
                 duration = end_time - start_time
                 cmd = [
                     'ffmpeg', '-y', '-v', 'error',
                     '-ss', str(start_time),
                     '-i', audio_path,
                     '-t', str(duration),
-                    '-acodec', 'copy',
+                    '-ar', '16000',  # 16kHz 采样率
+                    '-ac', '1',       # 单声道
+                    '-c:a', 'pcm_s16le',  # PCM 16-bit 编码
                     str(chunk_path)
                 ]
 
@@ -128,21 +131,8 @@ class AudioChunker:
 
                 result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
                 if result.returncode != 0:
-                    logger.warning(f"ffmpeg 分割块 {chunk_index} 失败: {result.stderr}")
-                    # 尝试使用 acodec pcm_s16le 而不是 copy
-                    cmd = [
-                        'ffmpeg', '-y', '-v', 'error',
-                        '-ss', str(start_time),
-                        '-i', audio_path,
-                        '-t', str(duration),
-                        '-acodec', 'pcm_s16le',
-                        '-ar', '16000',
-                        '-ac', '1',
-                        str(chunk_path)
-                    ]
-                    result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-                    if result.returncode != 0:
-                        raise Exception(f"ffmpeg 分割失败: {result.stderr}")
+                    logger.error(f"ffmpeg 分割块 {chunk_index} 失败: {result.stderr}")
+                    raise Exception(f"ffmpeg 分割失败: {result.stderr}")
 
                 chunks.append((str(chunk_path), start_time, end_time))
 

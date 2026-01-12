@@ -555,8 +555,9 @@ class SenseVoiceTranscriber:
             # ========== 音频分块处理结束 ==========
 
             # SenseVoice 推理参数
+            # 使用较小的 batch_size_s 适配 8GB 显存
             rec_config_kwargs = {
-                "batch_size_s": 300,  # 静音切断
+                "batch_size_s": 60,   # 每段60秒，避免 OOM
                 "merge_vad": True,    # 合并 vad
                 "merge_length_s": 5,  # 合并长度
             }
@@ -569,7 +570,7 @@ class SenseVoiceTranscriber:
 
             # 执行推理
             logger.info("正在执行 SenseVoice 推理...")
-            logger.info(f"推理参数: batch_size_s=300, merge_vad=True, merge_length_s=5, language={language_str}")
+            logger.info(f"推理参数: batch_size_s=60, merge_vad=True, merge_length_s=5, language={language_str}")
             inference_start = time.time()
 
             try:
@@ -1104,7 +1105,7 @@ class SenseVoiceTranscriber:
 
             # SenseVoice 推理参数
             rec_config_kwargs = {
-                "batch_size_s": 300,
+                "batch_size_s": 60,   # 每段60秒，避免 OOM
                 "merge_vad": True,
                 "merge_length_s": 5,
             }

@@ -71,11 +71,11 @@ class Settings(BaseSettings):
     CLEAN_SPECIAL_TOKENS: bool = True
 
     # 音频分块处理配置
-    # 长音频分段处理可提高准确率和性能
-    ENABLE_AUDIO_CHUNKING: bool = True
-    CHUNK_DURATION_SECONDS: int = 600  # 每块10分钟（秒）
-    CHUNK_OVERLAP_SECONDS: int = 2  # 块之间重叠时间（秒），避免接缝处丢失内容
-    MIN_DURATION_FOR_CHUNKING: int = 300  # 超过5分钟的音频才启用分块处理
+    # 禁用预先分割，改用 batch_size_s 参数让模型自动分段
+    ENABLE_AUDIO_CHUNKING: bool = False
+    CHUNK_DURATION_SECONDS: int = 300  # 每块5分钟（秒）
+    CHUNK_OVERLAP_SECONDS: int = 2  # 块之间重叠时间（秒）
+    MIN_DURATION_FOR_CHUNKING: int = 180  # 超过3分钟的音频才启用分块处理
 
     # 语言验证：确保语言代码有效
     SUPPORTED_LANGUAGES: List[str] = [
