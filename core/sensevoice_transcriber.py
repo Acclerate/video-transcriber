@@ -230,16 +230,31 @@ class SenseVoiceTranscriber:
         if self.device == "cuda" and torch.cuda.is_available():
             logger.info("正在将模型移至 GPU...")
             try:
-                # 方法1: 尝试移动 AutoModel 包装的模型
-                if hasattr(self.model, 'model') and hasattr(self.model.model, 'to'):
-                    self.model.model.to("cuda")
-                    logger.info("✓ 模型已移至 GPU (model.model.to('cuda'))")
-                # 方法2: 尝试直接调用 .to()
-                elif hasattr(self.model, 'to'):
-                    self.model.to("cuda")
-                    logger.info("✓ 模型已移至 GPU (model.to('cuda'))")
+                # FunASR AutoModel 有多个组件需要移到 GPU
+                components_to_move = ['model', 'vad_model', 'punc_model', 'spk_model', 'frontend']
+                moved_count = 0
+
+                for comp_name in components_to_move:
+                    if hasattr(self.model, comp_name):
+                        comp = getattr(self.model, comp_name)
+                        if comp is not None:
+                            try:
+                                if hasattr(comp, 'to'):
+                                    comp.to("cuda")
+                                    moved_count += 1
+                                    logger.debug(f"  ✓ {comp_name} 已移至 GPU")
+                            except Exception as e:
+                                logger.debug(f"  ⚠ {comp_name} 移至 GPU 失败: {e}")
+
+                # 如果没有组件被移动，尝试直接移动 AutoModel
+                if moved_count == 0:
+                    if hasattr(self.model, 'to'):
+                        self.model.to("cuda")
+                        logger.info("✓ AutoModel 已移至 GPU")
+                    else:
+                        logger.warning("⚠️ 无法将模型移至 GPU，使用 CPU 模式")
                 else:
-                    logger.warning("⚠️ 无法将模型移至 GPU，使用 CPU 模式")
+                    logger.info(f"✓ 共 {moved_count} 个组件已移至 GPU")
             except Exception as e:
                 logger.warning(f"模型移至 GPU 失败: {e}，继续使用 CPU")
 
@@ -422,12 +437,22 @@ class SenseVoiceTranscriber:
                 # 如果需要使用 GPU，显式移到 GPU
                 if self.device == "cuda" and torch.cuda.is_available():
                     try:
-                        if hasattr(model, 'model') and hasattr(model.model, 'to'):
-                            model.model.to("cuda")
-                            logger.info("✓ 标点符号模型已移至 GPU")
-                        elif hasattr(model, 'to'):
-                            model.to("cuda")
-                            logger.info("✓ 标点符号模型已移至 GPU")
+                        # 移动所有组件到 GPU
+                        components_to_move = ['model', 'vad_model', 'punc_model', 'spk_model', 'frontend']
+                        moved_count = 0
+
+                        for comp_name in components_to_move:
+                            if hasattr(model, comp_name):
+                                comp = getattr(model, comp_name)
+                                if comp is not None and hasattr(comp, 'to'):
+                                    try:
+                                        comp.to("cuda")
+                                        moved_count += 1
+                                    except:
+                                        pass
+
+                        if moved_count > 0:
+                            logger.info(f"✓ 标点符号模型已移至 GPU ({moved_count} 个组件)")
                     except Exception as e:
                         logger.warning(f"标点符号模型移至 GPU 失败: {e}，继续使用 CPU")
 
@@ -484,6 +509,7 @@ class SenseVoiceTranscriber:
             result = self.punctuation_model.generate(
                 input=text,
                 batch_size_s=300,
+                device=self.device,  # 确保使用正确的设备
             )
             logger.info(f"标点符号模型返回结果类型: {type(result)}, 长度: {len(result) if hasattr(result, '__len__') else 'N/A'}")
 
@@ -612,6 +638,7 @@ class SenseVoiceTranscriber:
                 "batch_size_s": 60,   # 每段60秒，避免 OOM
                 "merge_vad": True,    # 合并 vad
                 "merge_length_s": 5,  # 合并长度
+                "device": self.device, # 确保使用正确的设备
             }
 
             # 语言检测参数
@@ -1067,6 +1094,10 @@ class SenseVoiceTranscriber:
                     )
                     chunk_results.append(chunk_result)
 
+                    # 记录每个块的文本长度
+                    chunk_text = chunk_result.get("text", "")
+                    logger.info(f"块 {i+1} 转录完成: 文本长度 {len(chunk_text)} 字符")
+
                     # 释放 GPU 内存
                     if torch.cuda.is_available():
                         torch.cuda.empty_cache()
@@ -1171,6 +1202,7 @@ class SenseVoiceTranscriber:
                 "batch_size_s": 60,   # 每段60秒，避免 OOM
                 "merge_vad": True,
                 "merge_length_s": 5,
+                "device": self.device,  # 确保使用正确的设备
             }
 
             if language != "auto":
@@ -1359,6 +1391,7 @@ class SenseVoiceTranscriber:
                 "batch_size_s": 60,   # 每段60秒，避免 OOM
                 "merge_vad": True,
                 "merge_length_s": 5,
+                "device": self.device,  # 确保使用正确的设备
             }
 
             if language != "auto":

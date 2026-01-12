@@ -223,7 +223,7 @@ class AudioChunker:
                     seg["end"] = seg.get("end", 0) + time_offset
 
                 # 添加非重叠部分的文本
-                # 简单处理：跳过第一段（通常是重叠部分）
+                # 如果有 segments，从 segments 中提取
                 if len(chunk_segments) > 1:
                     # 跳过可能在重叠区域的第一段
                     segments_to_add = chunk_segments[1:]
@@ -231,6 +231,12 @@ class AudioChunker:
                         merged_segments.append(seg)
                         if seg.get("text"):
                             merged_text.append(seg.get("text", ""))
+                # 如果没有 segments 但有 text，直接添加 text
+                elif chunk_text:
+                    # 有文本但没有 segments 时，直接添加文本
+                    # 注意：可能会有一些重叠重复，但比丢失数据好
+                    merged_text.append(chunk_text)
+                    logger.debug(f"块 {i}: 添加文本 (长度 {len(chunk_text)})")
 
             # 更新时间偏移（减去重叠时间）
             chunk_duration = end_time - start_time
@@ -238,6 +244,12 @@ class AudioChunker:
 
         # 合并文本
         final_text = " ".join(merged_text).strip()
+
+        logger.info(f"合并完成: 共 {len(chunk_results)} 个块")
+        logger.info(f"最终文本长度: {len(final_text)} 字符")
+        for i, chunk_result in enumerate(chunk_results):
+            chunk_text = chunk_result.get("text", "")
+            logger.info(f"  块 {i}: {len(chunk_text)} 字符")
 
         # 计算平均置信度
         for seg in merged_segments:
