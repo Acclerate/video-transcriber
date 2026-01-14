@@ -205,3 +205,4 @@ media/
 # 其他
 *.pid
 *.sock
+*.claude

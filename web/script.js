@@ -123,6 +123,11 @@ class VideoTranscriberUI {
             this.downloadResult();
         });
 
+        // 清空结果按钮
+        document.getElementById('clearResultBtn').addEventListener('click', () => {
+            this.clearResult();
+        });
+
         // 清空历史按钮
         document.getElementById('clearHistoryBtn').addEventListener('click', () => {
             this.clearHistory();
@@ -536,12 +541,20 @@ class VideoTranscriberUI {
         const text = resultContent.textContent;
         const format = document.getElementById('outputFormat').value;
 
+        // 使用上传文件名作为下载文件名
+        let fileName = 'transcription';
+        if (this.selectedFile && this.selectedFile.name) {
+            // 去掉原始文件扩展名
+            const nameWithoutExt = this.selectedFile.name.replace(/\.[^/.]+$/, '');
+            fileName = nameWithoutExt;
+        }
+
         const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
         const url = URL.createObjectURL(blob);
 
         const a = document.createElement('a');
         a.href = url;
-        a.download = `transcription_${new Date().getTime()}.${format}`;
+        a.download = `${fileName}.${format}`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
@@ -550,8 +563,25 @@ class VideoTranscriberUI {
         this.showToast('文件下载已开始', 'success');
     }
 
+    clearResult() {
+        if (confirm('确定要清空当前转录结果吗？')) {
+            const resultCard = document.getElementById('resultCard');
+            const resultContent = document.getElementById('resultContent');
+            const resultStats = document.getElementById('resultStats');
+
+            // 清空内容
+            resultContent.textContent = '';
+            resultStats.innerHTML = '';
+
+            // 隐藏结果卡片
+            resultCard.style.display = 'none';
+
+            this.showToast('转录结果已清空', 'success');
+        }
+    }
+
     toggleForm(enabled) {
-        const inputs = document.querySelectorAll('#single input, #single select, #single button:not(#copyBtn):not(#downloadBtn):not(#removeFileBtn)');
+        const inputs = document.querySelectorAll('#single input, #single select, #single button:not(#copyBtn):not(#downloadBtn):not(#clearResultBtn):not(#removeFileBtn)');
 
         inputs.forEach(input => {
             input.disabled = !enabled;
