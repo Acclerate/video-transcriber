@@ -543,11 +543,15 @@ class VideoTranscriberUI {
 
         // 使用上传文件名作为下载文件名
         let fileName = 'transcription';
+        console.log('下载调试 - selectedFile:', this.selectedFile);
         if (this.selectedFile && this.selectedFile.name) {
             // 去掉原始文件扩展名
             const nameWithoutExt = this.selectedFile.name.replace(/\.[^/.]+$/, '');
             fileName = nameWithoutExt;
+            console.log('下载调试 - 使用文件名:', fileName);
         }
+
+        console.log('下载调试 - 最终文件名:', `${fileName}.${format}`);
 
         const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
         const url = URL.createObjectURL(blob);
