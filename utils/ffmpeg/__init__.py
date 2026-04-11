@@ -6,6 +6,8 @@ FFmpeg 工具模块
 from .checker import (
     check_ffmpeg_installed,
     configure_pydub_ffmpeg,
+    get_ffmpeg_path,
+    get_ffprobe_path,
     get_ffmpeg_version,
     get_ffmpeg_install_command,
     get_ffmpeg_help_message
@@ -14,6 +16,8 @@ from .checker import (
 __all__ = [
     "check_ffmpeg_installed",
     "configure_pydub_ffmpeg",
+    "get_ffmpeg_path",
+    "get_ffprobe_path",
     "get_ffmpeg_version",
     "get_ffmpeg_install_command",
     "get_ffmpeg_help_message",

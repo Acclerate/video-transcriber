@@ -15,19 +15,7 @@ from pydub import AudioSegment
 from loguru import logger
 
 from models.schemas import VideoFileInfo, VideoFormat
-from utils.ffmpeg import configure_pydub_ffmpeg
-
-
-def _resolve_ffmpeg() -> str:
-    """返回 ffmpeg 可执行文件的绝对路径"""
-    path = shutil.which("ffmpeg")
-    if path:
-        return path
-    # 回退到项目自带的 ffmpeg_bin
-    local = Path(__file__).parent.parent / "ffmpeg_bin" / "ffmpeg.exe"
-    if local.exists():
-        return str(local)
-    return "ffmpeg"
+from utils.ffmpeg import configure_pydub_ffmpeg, get_ffmpeg_path
 
 
 class AudioExtractor:
@@ -115,7 +103,7 @@ class AudioExtractor:
     def _get_video_duration(self, file_path: str) -> Optional[float]:
         """获取视频时长"""
         try:
-            ffmpeg = _resolve_ffmpeg()
+            ffmpeg = get_ffmpeg_path() or "ffmpeg"
             result = subprocess.run(
                 [ffmpeg, "-i", file_path, "-f", "null", "-"],
                 capture_output=True, timeout=30
@@ -162,7 +150,7 @@ class AudioExtractor:
             video_name = Path(video_path).stem
             audio_path = self.temp_dir / f"{video_name}_extracted.{output_format}"
 
-            ffmpeg = _resolve_ffmpeg()
+            ffmpeg = get_ffmpeg_path() or "ffmpeg"
 
             if progress_callback:
                 progress_callback(30)

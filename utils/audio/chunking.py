@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import List, Tuple, Optional
 
 from loguru import logger
+from utils.ffmpeg import get_ffmpeg_path, get_ffprobe_path
 
 
 class AudioChunker:
@@ -58,13 +59,16 @@ class AudioChunker:
             float: 时长（秒）
         """
         try:
+            ffprobe = get_ffprobe_path() or "ffprobe"
             cmd = [
-                'ffprobe', '-v', 'error',
+                ffprobe, '-v', 'error',
                 '-show_entries', 'format=duration',
                 '-of', 'default=noprint_wrappers=1:nokey=1',
                 audio_path
             ]
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(cmd, capture_output=True, timeout=30)
+            if result.returncode == 0:
+                return float(result.stdout.decode("utf-8", errors="replace").strip())
             if result.returncode == 0:
                 return float(result.stdout.strip())
             else:
@@ -110,8 +114,8 @@ class AudioChunker:
                 # 计算块的结束时间
                 end_time = min(start_time + self.chunk_duration, total_duration)
 
-                # 跳过太小的块（小于300秒）
-                if end_time - start_time < 300:
+                # 跳过太小的块（小于10秒）
+                if end_time - start_time < 10:
                     logger.debug(f"跳过太小的块: {start_time:.1f}s - {end_time:.1f}s")
                     break
 
@@ -119,25 +123,26 @@ class AudioChunker:
                 chunk_path = temp_path / f"chunk_{chunk_index}.wav"
 
                 # 使用 ffmpeg 提取音频片段
-                # 关键优化：-ss 作为输出选项，避免先跳转再解码
+                ffmpeg = get_ffmpeg_path() or "ffmpeg"
                 duration = end_time - start_time
                 cmd = [
-                    'ffmpeg', '-y', '-v', 'error',
+                    ffmpeg, '-y', '-v', 'error',
                     '-i', audio_path,
-                    '-ss', str(start_time),  # 作为输出选项，更快
+                    '-ss', str(start_time),
                     '-t', str(duration),
-                    '-ar', '16000',  # 16kHz 采样率
-                    '-ac', '1',       # 单声道
-                    '-c:a', 'pcm_s16le',  # PCM 16-bit 编码
+                    '-ar', '16000',
+                    '-ac', '1',
+                    '-c:a', 'pcm_s16le',
                     str(chunk_path)
                 ]
 
                 logger.info(f"创建块 {chunk_index}: {start_time:.1f}s - {end_time:.1f}s (时长 {duration:.1f}s)")
 
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+                result = subprocess.run(cmd, capture_output=True, timeout=120)
                 if result.returncode != 0:
-                    logger.error(f"ffmpeg 分割块 {chunk_index} 失败: {result.stderr}")
-                    raise Exception(f"ffmpeg 分割失败: {result.stderr}")
+                    stderr_text = result.stderr.decode("utf-8", errors="replace")
+                    logger.error(f"ffmpeg 分割块 {chunk_index} 失败: {stderr_text}")
+                    raise Exception(f"ffmpeg 分割失败: {stderr_text}")
 
                 chunks.append((str(chunk_path), start_time, end_time))
 
@@ -297,7 +302,7 @@ audio_chunker = AudioChunker()
 def get_audio_chunker(
     chunk_duration: int = 300,
     overlap: int = 2,
-    min_duration: int = 600
+    min_duration: int = 30
 ) -> AudioChunker:
     """
     获取音频分块器实例

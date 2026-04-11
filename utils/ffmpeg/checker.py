@@ -6,9 +6,40 @@ FFmpeg 检测模块
 import shutil
 import subprocess
 import platform
+from pathlib import Path
 from typing import Optional
 
 from loguru import logger
+
+# 已知的本地 FFmpeg 安装路径（优先级从高到低）
+_LOCAL_FFMPEG_DIRS = [
+    Path("D:/tools/ffmpeg-8.1-essentials_build/bin"),
+]
+
+
+def _find_local_ffmpeg(name: str) -> Optional[str]:
+    """在已知的本地目录中查找 ffmpeg/ffprobe"""
+    for d in _LOCAL_FFMPEG_DIRS:
+        exe = d / name
+        if exe.exists():
+            return str(exe)
+    return None
+
+
+def get_ffmpeg_path() -> Optional[str]:
+    """获取 ffmpeg 可执行文件路径（本地优先，回退到 PATH）"""
+    local = _find_local_ffmpeg("ffmpeg.exe")
+    if local:
+        return local
+    return shutil.which("ffmpeg")
+
+
+def get_ffprobe_path() -> Optional[str]:
+    """获取 ffprobe 可执行文件路径（本地优先，回退到 PATH）"""
+    local = _find_local_ffmpeg("ffprobe.exe")
+    if local:
+        return local
+    return shutil.which("ffprobe")
 
 
 def check_ffmpeg_installed() -> bool:
@@ -18,7 +49,7 @@ def check_ffmpeg_installed() -> bool:
     Returns:
         bool: FFmpeg 是否可用
     """
-    return shutil.which("ffmpeg") is not None
+    return get_ffmpeg_path() is not None
 
 
 def configure_pydub_ffmpeg() -> None:
@@ -29,14 +60,15 @@ def configure_pydub_ffmpeg() -> None:
     try:
         from pydub.audio_segment import AudioSegment
 
-        ffmpeg_path = shutil.which("ffmpeg")
+        ffmpeg_path = get_ffmpeg_path()
         if ffmpeg_path:
             AudioSegment.converter = ffmpeg_path
             logger.debug(f"pydub converter 设置为: {ffmpeg_path}")
 
-        ffprobe_path = shutil.which("ffprobe")
+        ffprobe_path = get_ffprobe_path()
         if ffprobe_path and hasattr(AudioSegment, 'ffprobe'):
             AudioSegment.ffprobe = ffprobe_path
+            logger.debug(f"pydub ffprobe 设置为: {ffprobe_path}")
     except Exception as e:
         logger.warning(f"配置 pydub FFmpeg 路径失败: {e}")
 
@@ -49,8 +81,9 @@ def get_ffmpeg_version() -> Optional[str]:
         Optional[str]: FFmpeg 版本信息，失败返回 None
     """
     try:
+        ffmpeg = get_ffmpeg_path() or "ffmpeg"
         result = subprocess.run(
-            ["ffmpeg", "-version"],
+            [ffmpeg, "-version"],
             capture_output=True,
             text=True,
             timeout=5
