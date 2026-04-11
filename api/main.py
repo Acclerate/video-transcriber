@@ -23,7 +23,7 @@ from rich.console import Console
 from config import settings
 from models.schemas import APIResponse
 from utils.logging import setup_default_logger
-from utils.ffmpeg import check_ffmpeg_installed, get_ffmpeg_help_message
+from utils.ffmpeg import check_ffmpeg_installed, configure_pydub_ffmpeg, get_ffmpeg_help_message
 from .routes import health_router, transcribe_router
 from .websocket import websocket_endpoint, ws_manager
 
@@ -52,6 +52,8 @@ async def lifespan(app: FastAPI):
     )
 
     # 依赖检查
+    configure_pydub_ffmpeg()
+
     if not check_ffmpeg_installed():
         startup_console.print("\n[bold red]╔════════════════════════════════════════════════════════════════╗[/bold red]")
         startup_console.print("[bold red]║                     依赖检查失败                                 ║[/bold red]")

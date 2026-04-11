@@ -483,7 +483,7 @@ def check():
 
 
 @cli.command()
-@click.option('--host', default='0.0.0.0', help='服务主机')
+@click.option('--host', default='127.0.0.1', help='服务主机')
 @click.option('--port', default=8665, help='服务端口')
 @click.option('--reload', is_flag=True, help='自动重载')
 def serve(host, port, reload):
@@ -574,6 +574,8 @@ def download_model(model, source):
 
 if __name__ == "__main__":
     try:
+        if len(sys.argv) == 1:
+            sys.argv.append('serve')
         cli()
     except KeyboardInterrupt:
         console.print("\n[yellow]程序已退出[/yellow]")

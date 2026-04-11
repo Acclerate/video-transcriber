@@ -4,6 +4,8 @@
 """
 
 import os
+import shutil
+import subprocess
 import asyncio
 from pathlib import Path
 from typing import Optional, Callable
@@ -13,6 +15,19 @@ from pydub import AudioSegment
 from loguru import logger
 
 from models.schemas import VideoFileInfo, VideoFormat
+from utils.ffmpeg import configure_pydub_ffmpeg
+
+
+def _resolve_ffmpeg() -> str:
+    """返回 ffmpeg 可执行文件的绝对路径"""
+    path = shutil.which("ffmpeg")
+    if path:
+        return path
+    # 回退到项目自带的 ffmpeg_bin
+    local = Path(__file__).parent.parent / "ffmpeg_bin" / "ffmpeg.exe"
+    if local.exists():
+        return str(local)
+    return "ffmpeg"
 
 
 class AudioExtractor:
@@ -31,6 +46,9 @@ class AudioExtractor:
 
         # 确保临时目录存在
         self.temp_dir.mkdir(parents=True, exist_ok=True)
+
+        # 将 FFmpeg 完整路径配置到 pydub，避免 PATH 环境变量问题
+        configure_pydub_ffmpeg()
 
         # 支持的视频格式
         self.supported_formats = {
@@ -97,9 +115,19 @@ class AudioExtractor:
     def _get_video_duration(self, file_path: str) -> Optional[float]:
         """获取视频时长"""
         try:
-            # 使用pydub加载音频来获取时长
-            audio = AudioSegment.from_file(file_path)
-            return len(audio) / 1000.0  # 转换为秒
+            ffmpeg = _resolve_ffmpeg()
+            result = subprocess.run(
+                [ffmpeg, "-i", file_path, "-f", "null", "-"],
+                capture_output=True, timeout=30
+            )
+            # 从 stderr 中解析时长，格式: Duration: HH:MM:SS.ms
+            output = result.stderr.decode("utf-8", errors="replace")
+            import re
+            match = re.search(r"Duration:\s*(\d+):(\d+):(\d+\.\d+)", output)
+            if match:
+                h, m, s = float(match.group(1)), float(match.group(2)), float(match.group(3))
+                return h * 3600 + m * 60 + s
+            return None
         except Exception as e:
             logger.warning(f"无法获取视频时长: {e}")
             return None
@@ -127,7 +155,6 @@ class AudioExtractor:
             if not os.path.exists(video_path):
                 raise Exception(f"视频文件不存在: {video_path}")
 
-            # 模拟进度
             if progress_callback:
                 progress_callback(10)
 
@@ -135,25 +162,47 @@ class AudioExtractor:
             video_name = Path(video_path).stem
             audio_path = self.temp_dir / f"{video_name}_extracted.{output_format}"
 
-            # 使用pydub提取音频
+            ffmpeg = _resolve_ffmpeg()
+
             if progress_callback:
                 progress_callback(30)
 
-            audio = AudioSegment.from_file(video_path)
+            # 直接用 ffmpeg 提取音频（不依赖 pydub/ffprobe）
+            if output_format.lower() == "wav":
+                cmd = [
+                    ffmpeg, "-y", "-i", video_path,
+                    "-vn",                   # 不要视频
+                    "-acodec", "pcm_s16le",  # 16-bit PCM
+                    "-ar", "16000",          # 16kHz 采样率
+                    "-ac", "1",              # 单声道
+                    str(audio_path)
+                ]
+            elif output_format.lower() == "mp3":
+                cmd = [
+                    ffmpeg, "-y", "-i", video_path,
+                    "-vn",
+                    "-acodec", "libmp3lame",
+                    "-ar", "44100",
+                    "-b:a", "192k",
+                    str(audio_path)
+                ]
+            else:
+                cmd = [
+                    ffmpeg, "-y", "-i", video_path,
+                    "-vn",
+                    str(audio_path)
+                ]
 
             if progress_callback:
-                progress_callback(60)
+                progress_callback(50)
 
-            # 音频导出设置
-            if output_format.lower() == "wav":
-                # 转换为16kHz单声道WAV (语音识别推荐格式)
-                audio = audio.set_frame_rate(16000).set_channels(1)
-                audio.export(str(audio_path), format="wav")
-            elif output_format.lower() == "mp3":
-                audio = audio.set_frame_rate(44100)
-                audio.export(str(audio_path), format="mp3", bitrate="192k")
-            else:
-                audio.export(str(audio_path), format=output_format)
+            result = subprocess.run(
+                cmd, capture_output=True, timeout=600
+            )
+
+            if result.returncode != 0:
+                stderr_text = result.stderr.decode("utf-8", errors="replace")[-500:]
+                raise Exception(f"ffmpeg 返回错误: {stderr_text}")
 
             if progress_callback:
                 progress_callback(100)

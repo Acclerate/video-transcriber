@@ -21,6 +21,26 @@ def check_ffmpeg_installed() -> bool:
     return shutil.which("ffmpeg") is not None
 
 
+def configure_pydub_ffmpeg() -> None:
+    """
+    将 FFmpeg 的完整路径设置给 pydub，
+    避免运行时因 PATH 环境变量差异找不到 ffmpeg。
+    """
+    try:
+        from pydub.audio_segment import AudioSegment
+
+        ffmpeg_path = shutil.which("ffmpeg")
+        if ffmpeg_path:
+            AudioSegment.converter = ffmpeg_path
+            logger.debug(f"pydub converter 设置为: {ffmpeg_path}")
+
+        ffprobe_path = shutil.which("ffprobe")
+        if ffprobe_path and hasattr(AudioSegment, 'ffprobe'):
+            AudioSegment.ffprobe = ffprobe_path
+    except Exception as e:
+        logger.warning(f"配置 pydub FFmpeg 路径失败: {e}")
+
+
 def get_ffmpeg_version() -> Optional[str]:
     """
     获取 FFmpeg 版本信息
