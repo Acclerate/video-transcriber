@@ -206,3 +206,4 @@ media/
 *.pid
 *.sock
 *.claude
+nul
