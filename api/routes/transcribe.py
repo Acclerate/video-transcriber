@@ -3,7 +3,8 @@
 处理视频转录相关的 API 端点
 """
 
-from typing import Optional, List
+from collections import deque
+from typing import Optional, List, Deque
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, BackgroundTasks, Request
@@ -57,6 +58,32 @@ def get_transcription_service() -> TranscriptionService:
 def get_file_service() -> FileService:
     """获取文件服务实例"""
     return FileService()
+
+
+def tail_file_lines(file_path: Path, max_lines: int = 200) -> List[str]:
+    """高效读取文件末尾的若干行。"""
+    if max_lines <= 0:
+        return []
+
+    line_buffer: Deque[str] = deque(maxlen=max_lines)
+
+    with file_path.open("r", encoding="utf-8", errors="replace") as log_file:
+        for line in log_file:
+            line_buffer.append(line.rstrip("\n"))
+
+    return list(line_buffer)
+
+
+def detect_log_level(line: str) -> str:
+    """从日志行中提取级别（error/warning/info/debug）。"""
+    upper_line = line.upper()
+    if "| ERROR" in upper_line or "| CRITICAL" in upper_line:
+        return "error"
+    if "| WARNING" in upper_line or "| WARN" in upper_line:
+        return "warning"
+    if "| DEBUG" in upper_line:
+        return "debug"
+    return "info"
 
 
 # ============================================================
@@ -420,3 +447,84 @@ async def get_statistics(
         "data": stats,
         "message": "查询成功"
     }
+
+
+@transcribe_router.get("/logs")
+async def get_transcription_logs(
+    limit: int = 120,
+    level: str = "all",
+    keyword: str = "",
+):
+    """
+    获取最近的后端日志（面向前端日志面板）。
+
+    Args:
+        limit: 返回的最大行数 (10-500)
+        level: 日志级别过滤（all/debug/info/warning/error）
+        keyword: 可选关键字过滤（大小写不敏感）
+
+    Returns:
+        dict: 日志行与基础统计
+    """
+    try:
+        limit = max(10, min(limit, 500))
+        normalized_level = (level or "all").strip().lower()
+        valid_levels = {"all", "debug", "info", "warning", "error"}
+        if normalized_level not in valid_levels:
+            raise HTTPException(status_code=400, detail="无效的 level 参数")
+
+        log_file = settings.log_file_path
+
+        if not log_file.exists():
+            return {
+                "code": 200,
+                "data": {
+                    "lines": [],
+                    "total": 0,
+                    "level": normalized_level,
+                    "keyword": keyword,
+                    "source": str(log_file),
+                    "updated_at": None,
+                },
+                "message": "日志文件不存在"
+            }
+
+        lines = tail_file_lines(log_file, max_lines=limit * 4)
+
+        # 默认聚焦转录相关日志，若指定 keyword 则按 keyword 过滤
+        if keyword.strip():
+            keyword_lower = keyword.lower().strip()
+            filtered = [line for line in lines if keyword_lower in line.lower()]
+        else:
+            default_keywords = (
+                "转录", "transcrib", "sensevoice", "audio", "ffmpeg", "task", "批量"
+            )
+            filtered = [
+                line for line in lines
+                if any(k in line.lower() for k in default_keywords)
+            ]
+
+        if normalized_level != "all":
+            filtered = [
+                line for line in filtered
+                if detect_log_level(line) == normalized_level
+            ]
+
+        result_lines = filtered[-limit:]
+
+        return {
+            "code": 200,
+            "data": {
+                "lines": result_lines,
+                "total": len(result_lines),
+                "level": normalized_level,
+                "keyword": keyword,
+                "source": str(log_file),
+                "updated_at": log_file.stat().st_mtime,
+            },
+            "message": "查询成功"
+        }
+
+    except Exception as e:
+        logger.error(f"获取日志失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

@@ -10,14 +10,30 @@ class VideoTranscriberUI {
         this.history = this.loadHistory();
         this.selectedFile = null;
         this.selectedBatchFiles = [];
+        this.themeStorageKey = 'video_transcriber_theme';
+        this.currentTheme = 'light';
+        this.statusPollingTimer = null;
+        this.logPollingTimer = null;
+        this.logsAutoScroll = true;
+        this.logsPaused = false;
+        this.logFilters = {
+            level: 'all',
+            keyword: ''
+        };
+        this.currentLogLines = [];
 
         this.init();
     }
 
     init() {
+        this.applySavedTheme();
         this.bindEvents();
         this.loadHistory();
         this.displayHistory();
+        this.initTabAnimation();
+        this.initRealtimeStatusCards();
+        this.startStatusPolling();
+        this.initLogStream();
         this.initWebSocket();
     }
 
@@ -71,6 +87,14 @@ class VideoTranscriberUI {
         document.getElementById('transcribeBtn').addEventListener('click', () => {
             this.handleSingleTranscribe();
         });
+
+        // 首屏快捷转录按钮
+        const transcribeQuickBtn = document.getElementById('transcribeQuickBtn');
+        if (transcribeQuickBtn) {
+            transcribeQuickBtn.addEventListener('click', () => {
+                this.handleSingleTranscribe();
+            });
+        }
 
         // 批量转录 - 文件选择
         const batchFilesInput = document.getElementById('batchFiles');
@@ -141,6 +165,425 @@ class VideoTranscriberUI {
                 timestamps.checked = false;
             }
         });
+
+        // 主题切换
+        const themeToggleBtn = document.getElementById('themeToggleBtn');
+        if (themeToggleBtn) {
+            themeToggleBtn.addEventListener('click', () => this.toggleTheme());
+        }
+
+        // 日志刷新
+        const refreshLogsBtn = document.getElementById('refreshLogsBtn');
+        if (refreshLogsBtn) {
+            refreshLogsBtn.addEventListener('click', () => {
+                this.fetchLogStream();
+            });
+        }
+
+        const logLevelFilter = document.getElementById('logLevelFilter');
+        if (logLevelFilter) {
+            logLevelFilter.addEventListener('change', (event) => {
+                this.logFilters.level = event.target.value;
+                this.fetchLogStream();
+            });
+        }
+
+        const logKeywordInput = document.getElementById('logKeywordInput');
+        if (logKeywordInput) {
+            logKeywordInput.addEventListener('keydown', (event) => {
+                if (event.key === 'Enter') {
+                    this.logFilters.keyword = event.target.value.trim();
+                    this.fetchLogStream();
+                }
+            });
+
+            logKeywordInput.addEventListener('blur', (event) => {
+                const newKeyword = event.target.value.trim();
+                if (newKeyword !== this.logFilters.keyword) {
+                    this.logFilters.keyword = newKeyword;
+                    this.fetchLogStream();
+                }
+            });
+        }
+
+        const pauseLogsBtn = document.getElementById('pauseLogsBtn');
+        if (pauseLogsBtn) {
+            pauseLogsBtn.addEventListener('click', () => {
+                this.toggleLogsPause();
+            });
+        }
+
+        const exportLogsBtn = document.getElementById('exportLogsBtn');
+        if (exportLogsBtn) {
+            exportLogsBtn.addEventListener('click', () => {
+                this.exportCurrentLogs();
+            });
+        }
+
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                this.setLogIndicator('paused', '页面后台，已降低刷新频率');
+            } else {
+                if (!this.logsPaused) {
+                    this.setLogIndicator('live', '实时更新');
+                }
+                this.fetchLogStream();
+                this.fetchRealtimeStatus();
+            }
+        });
+    }
+
+    applySavedTheme() {
+        const savedTheme = localStorage.getItem(this.themeStorageKey);
+        const defaultDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+        const theme = savedTheme || (defaultDark ? 'dark' : 'light');
+        this.applyTheme(theme);
+    }
+
+    applyTheme(theme) {
+        const root = document.documentElement;
+        const toggleText = document.getElementById('themeToggleText');
+        const toggleBtn = document.getElementById('themeToggleBtn');
+
+        this.currentTheme = theme;
+        root.setAttribute('data-theme', theme);
+        localStorage.setItem(this.themeStorageKey, theme);
+
+        if (toggleText) {
+            toggleText.textContent = theme === 'dark' ? '浅色' : '深色';
+        }
+
+        if (toggleBtn) {
+            toggleBtn.innerHTML = theme === 'dark'
+                ? '<i class="bi bi-sun me-1"></i><span id="themeToggleText">浅色</span>'
+                : '<i class="bi bi-moon-stars me-1"></i><span id="themeToggleText">深色</span>';
+        }
+    }
+
+    toggleTheme() {
+        const nextTheme = this.currentTheme === 'dark' ? 'light' : 'dark';
+        this.applyTheme(nextTheme);
+        this.showToast(`已切换到${nextTheme === 'dark' ? '深色' : '浅色'}主题`, 'info');
+    }
+
+    initTabAnimation() {
+        const tabButtons = document.querySelectorAll('[data-bs-toggle="tab"]');
+        tabButtons.forEach((tabButton) => {
+            tabButton.addEventListener('shown.bs.tab', (event) => {
+                const targetSelector = event.target.getAttribute('data-bs-target');
+                this.animateTabPane(targetSelector);
+                this.updateQuickBarVisibility(targetSelector);
+            });
+        });
+
+        this.updateQuickBarVisibility('#single');
+    }
+
+    animateTabPane(targetSelector) {
+        const pane = document.querySelector(targetSelector);
+        if (!pane) return;
+
+        pane.classList.remove('tab-enter');
+        void pane.offsetWidth;
+        pane.classList.add('tab-enter');
+    }
+
+    updateQuickBarVisibility(targetSelector) {
+        // Bar is now controlled by file-selection state, not tab.
+        // When switching away from #single, always hide; when returning,
+        // restore based on whether a file is selected.
+        const quickBar = document.getElementById('quickTranscribeBar');
+        if (!quickBar) return;
+
+        if (targetSelector !== '#single') {
+            quickBar.classList.remove('visible');
+        } else if (this.selectedFile) {
+            quickBar.classList.add('visible');
+        }
+    }
+
+    showFileStatusBar(file) {
+        const quickBar = document.getElementById('quickTranscribeBar');
+        const nameEl = document.getElementById('quickBarFileName');
+        const sizeEl = document.getElementById('quickBarFileSize');
+        if (!quickBar) return;
+
+        if (nameEl) nameEl.textContent = file.name;
+        if (sizeEl) sizeEl.textContent = this.formatFileSize(file.size);
+
+        // Trigger re-animation
+        quickBar.classList.remove('visible');
+        void quickBar.offsetWidth;
+        quickBar.classList.add('visible');
+    }
+
+    hideFileStatusBar() {
+        const quickBar = document.getElementById('quickTranscribeBar');
+        if (quickBar) quickBar.classList.remove('visible');
+    }
+
+    async initRealtimeStatusCards() {
+        await this.fetchRealtimeStatus();
+    }
+
+    startStatusPolling() {
+        if (this.statusPollingTimer) {
+            clearInterval(this.statusPollingTimer);
+        }
+
+        this.statusPollingTimer = setInterval(() => {
+            this.fetchRealtimeStatus();
+        }, 15000);
+    }
+
+    async fetchRealtimeStatus() {
+        try {
+            const [infoRes, healthRes, statsRes] = await Promise.allSettled([
+                fetch(`${this.apiBaseUrl}/info`),
+                fetch(`${this.apiBaseUrl}/health`),
+                fetch(`${this.apiBaseUrl}/api/v1/transcribe/stats`)
+            ]);
+
+            let modelStatus = '未知';
+            let gpuStatus = '未知';
+            let recentTasks = '0';
+
+            if (infoRes.status === 'fulfilled' && infoRes.value.ok) {
+                const infoData = await infoRes.value.json();
+                const modelName = infoData.models?.default || 'sensevoice-small';
+                modelStatus = `${modelName} / 就绪`;
+                gpuStatus = infoData.features?.gpu_support ? '可用' : '未启用';
+            }
+
+            if (healthRes.status === 'fulfilled' && healthRes.value.ok) {
+                const healthData = await healthRes.value.json();
+                const ffmpegHealthy = healthData.components?.ffmpeg?.healthy;
+                if (!ffmpegHealthy) {
+                    modelStatus = `${modelStatus} (依赖降级)`;
+                }
+            }
+
+            if (statsRes.status === 'fulfilled' && statsRes.value.ok) {
+                const statsData = await statsRes.value.json();
+                const stats = statsData.data || {};
+                const total = Number(stats.total_tasks || stats.total || 0);
+                const completed = Number(stats.total_success || stats.completed_tasks || stats.completed || 0);
+                recentTasks = `${total} / 已完成 ${completed}`;
+            }
+
+            this.updateStatusCards({
+                modelStatus,
+                gpuStatus,
+                recentTasks
+            });
+        } catch (error) {
+            console.error('获取状态卡信息失败:', error);
+            this.updateStatusCards({
+                modelStatus: '获取失败',
+                gpuStatus: '获取失败',
+                recentTasks: '获取失败'
+            });
+        }
+    }
+
+    updateStatusCards({ modelStatus, gpuStatus, recentTasks }) {
+        const modelEl = document.getElementById('modelStatusValue');
+        const gpuEl = document.getElementById('gpuStatusValue');
+        const taskEl = document.getElementById('recentTasksValue');
+
+        if (modelEl) modelEl.textContent = modelStatus;
+        if (gpuEl) gpuEl.textContent = gpuStatus;
+        if (taskEl) taskEl.textContent = recentTasks;
+    }
+
+    initLogStream() {
+        const logContainer = document.getElementById('logStreamContent');
+        if (logContainer) {
+            logContainer.addEventListener('scroll', () => {
+                const threshold = 24;
+                const atBottom = logContainer.scrollTop + logContainer.clientHeight >= logContainer.scrollHeight - threshold;
+                this.logsAutoScroll = atBottom;
+            });
+        }
+
+        this.fetchLogStream();
+        this.startLogPolling();
+    }
+
+    startLogPolling() {
+        if (this.logPollingTimer) {
+            clearInterval(this.logPollingTimer);
+        }
+
+        this.logPollingTimer = setInterval(() => {
+            if (!this.logsPaused) {
+                this.fetchLogStream();
+            }
+        }, 2500);
+    }
+
+    toggleLogsPause() {
+        this.logsPaused = !this.logsPaused;
+        const pauseBtn = document.getElementById('pauseLogsBtn');
+        if (pauseBtn) {
+            pauseBtn.classList.toggle('btn-outline-warning', !this.logsPaused);
+            pauseBtn.classList.toggle('btn-outline-primary', this.logsPaused);
+            pauseBtn.innerHTML = this.logsPaused
+                ? '<i class="bi bi-play-circle me-1"></i>继续'
+                : '<i class="bi bi-pause-circle me-1"></i>暂停';
+        }
+
+        if (this.logsPaused) {
+            this.setLogIndicator('paused', '已暂停实时刷新');
+        } else {
+            this.setLogIndicator('live', '实时更新');
+            this.fetchLogStream();
+        }
+    }
+
+    async fetchLogStream() {
+        const logContainer = document.getElementById('logStreamContent');
+        if (!logContainer) return;
+
+        try {
+            const query = new URLSearchParams({
+                limit: '120',
+                level: this.logFilters.level || 'all',
+                keyword: this.logFilters.keyword || ''
+            });
+
+            const response = await fetch(`${this.apiBaseUrl}/api/v1/transcribe/logs?${query.toString()}`);
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`日志请求失败(${response.status}): ${errorText.slice(0, 120)}`);
+            }
+
+            const result = await response.json();
+            const lines = result.data?.lines || [];
+            this.currentLogLines = lines;
+
+            this.renderLogLines(lines);
+            if (!this.logsPaused) {
+                this.setLogIndicator('live', `实时更新 · ${lines.length} 行`);
+            }
+        } catch (error) {
+            console.error('获取日志失败:', error);
+            this.setLogIndicator('error', '日志连接异常');
+            this.renderLogError(error.message || '未知错误');
+        }
+    }
+
+    renderLogError(message) {
+        const logContainer = document.getElementById('logStreamContent');
+        if (!logContainer) return;
+        logContainer.innerHTML = `
+            <span class="log-line error">[日志连接异常]</span>
+            <span class="log-line warn">${this.escapeHtml(message)}</span>
+            <span class="log-line info">你可以点击右上角刷新按钮重试。</span>
+        `;
+    }
+
+    renderLogLines(lines) {
+        const logContainer = document.getElementById('logStreamContent');
+        if (!logContainer) return;
+
+        if (!lines || lines.length === 0) {
+            logContainer.textContent = '暂无转录日志，请先发起一次任务。';
+            return;
+        }
+
+        logContainer.innerHTML = lines.map((line) => {
+            const levelClass = this.detectLogLevel(line);
+
+            const lineContent = this.highlightKeyword(line, this.logFilters.keyword);
+
+            return `<span class="log-line ${levelClass}">${lineContent}</span>`;
+        }).join('');
+
+        if (this.logsAutoScroll) {
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+    }
+
+    detectLogLevel(line) {
+        const lower = line.toLowerCase();
+        if (lower.includes('| error') || lower.includes('| critical') || lower.includes('失败') || lower.includes('异常')) {
+            return 'error';
+        }
+        if (lower.includes('| warning') || lower.includes('| warn') || lower.includes('超时')) {
+            return 'warn';
+        }
+        return 'info';
+    }
+
+    highlightKeyword(line, keyword) {
+        const escaped = this.escapeHtml(line);
+        if (!keyword) {
+            return escaped;
+        }
+
+        const escapedKeyword = this.escapeRegExp(keyword);
+        const matcher = new RegExp(`(${escapedKeyword})`, 'gi');
+        return escaped.replace(matcher, '<mark>$1</mark>');
+    }
+
+    escapeRegExp(value) {
+        return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+
+    exportCurrentLogs() {
+        if (!this.currentLogLines || this.currentLogLines.length === 0) {
+            this.showToast('当前没有可导出的日志', 'warning');
+            return;
+        }
+
+        const now = new Date();
+        const timestamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}-${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}`;
+        const fileName = `transcription-logs-${timestamp}.txt`;
+        const header = [
+            `Video Transcriber Logs`,
+            `level=${this.logFilters.level}`,
+            `keyword=${this.logFilters.keyword || '(none)'}`,
+            `exported_at=${new Date().toISOString()}`,
+            `----------------------------------------`
+        ].join('\n');
+        const content = `${header}\n${this.currentLogLines.join('\n')}`;
+
+        const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = fileName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        this.showToast('日志片段已导出', 'success');
+    }
+
+    setLogIndicator(status, text) {
+        const dot = document.getElementById('logStatusDot');
+        const label = document.getElementById('logStatusText');
+        if (!dot || !label) return;
+
+        dot.classList.remove('paused', 'error');
+        if (status === 'paused') {
+            dot.classList.add('paused');
+        } else if (status === 'error') {
+            dot.classList.add('error');
+        }
+
+        label.textContent = text;
+    }
+
+    escapeHtml(value) {
+        return value
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
     }
 
     handleFileSelect(file) {
@@ -167,8 +610,9 @@ class VideoTranscriberUI {
         document.getElementById('fileName').textContent = file.name;
         document.getElementById('fileSize').textContent = this.formatFileSize(file.size);
 
-        // 启用转录按钮
-        document.getElementById('transcribeBtn').disabled = false;
+        // 启用转录按钮，显示文件状态条
+        this.updateTranscribeButtonsEnabled(true);
+        this.showFileStatusBar(file);
     }
 
     removeSelectedFile() {
@@ -176,7 +620,21 @@ class VideoTranscriberUI {
         document.getElementById('videoFile').value = '';
         document.querySelector('.upload-placeholder').style.display = 'block';
         document.getElementById('fileInfo').style.display = 'none';
-        document.getElementById('transcribeBtn').disabled = true;
+        this.updateTranscribeButtonsEnabled(false);
+        this.hideFileStatusBar();
+    }
+
+    updateTranscribeButtonsEnabled(enabled) {
+        const transcribeBtn = document.getElementById('transcribeBtn');
+        const quickBtn = document.getElementById('transcribeQuickBtn');
+
+        if (transcribeBtn) {
+            transcribeBtn.disabled = !enabled;
+        }
+
+        if (quickBtn) {
+            quickBtn.disabled = !enabled;
+        }
     }
 
     handleBatchFilesSelect(files) {
@@ -292,10 +750,22 @@ class VideoTranscriberUI {
         }
 
         const btn = document.getElementById('transcribeBtn');
+        const quickBtn = document.getElementById('transcribeQuickBtn');
 
         // 禁用表单
         this.toggleForm(false);
         btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>处理中...';
+        const badge = document.querySelector('.file-status-badge');
+        if (badge) {
+            badge.textContent = '处理中';
+            badge.classList.add('processing');
+        }
+        if (quickBtn) {
+            quickBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>处理中...';
+            quickBtn.disabled = true;
+        }
+        this.setLogIndicator('live', '任务执行中');
+        this.fetchLogStream();
 
         try {
             // 显示进度卡片
@@ -329,6 +799,17 @@ class VideoTranscriberUI {
         } finally {
             this.toggleForm(true);
             btn.innerHTML = '<i class="bi bi-play-fill me-2"></i>开始转录';
+            const badge = document.querySelector('.file-status-badge');
+            if (badge) {
+                badge.textContent = '已就绪';
+                badge.classList.remove('processing');
+            }
+            if (quickBtn) {
+                quickBtn.innerHTML = '<i class="bi bi-play-circle-fill me-2"></i>立即转录';
+                quickBtn.disabled = !this.selectedFile;
+            }
+            this.fetchRealtimeStatus();
+            this.fetchLogStream();
         }
     }
 
@@ -343,6 +824,8 @@ class VideoTranscriberUI {
         try {
             btn.disabled = true;
             btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>处理中...';
+            this.setLogIndicator('live', '批量任务执行中');
+            this.fetchLogStream();
 
             const formData = new FormData();
             this.selectedBatchFiles.forEach(file => {
@@ -372,6 +855,8 @@ class VideoTranscriberUI {
         } finally {
             btn.disabled = false;
             btn.innerHTML = '<i class="bi bi-play-fill me-2"></i>开始批量转录';
+            this.fetchRealtimeStatus();
+            this.fetchLogStream();
         }
     }
 
@@ -590,10 +1075,16 @@ class VideoTranscriberUI {
         inputs.forEach(input => {
             input.disabled = !enabled;
         });
+
+        const quickBtn = document.getElementById('transcribeQuickBtn');
+        if (quickBtn) {
+            quickBtn.disabled = !enabled || !this.selectedFile;
+        }
     }
 
     showError(message) {
         this.showToast(message, 'error');
+        this.setLogIndicator('error', '任务异常');
 
         // 重新启用表单
         this.toggleForm(true);

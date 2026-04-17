@@ -4,13 +4,16 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Video Transcriber - 视频转文本工具</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
     <link href="/static/style.css" rel="stylesheet">
 </head>
 <body>
     <!-- 导航栏 -->
-    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+    <nav class="navbar navbar-expand-lg main-nav">
         <div class="container">
             <a class="navbar-brand" href="#">
                 <i class="bi bi-camera-video me-2"></i>
@@ -20,36 +23,61 @@
                 <span class="navbar-toggler-icon"></span>
             </button>
             <div class="collapse navbar-collapse" id="navbarNav">
-                <ul class="navbar-nav ms-auto">
-                    <li class="nav-item">
-                        <a class="nav-link" href="#single">单个转录</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="#batch">批量转录</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="#history">历史记录</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="/docs" target="_blank">API文档</a>
-                    </li>
-                </ul>
+                <div class="ms-auto d-flex align-items-center gap-3 nav-controls-wrap">
+                    <button class="btn btn-sm theme-toggle-btn" id="themeToggleBtn" type="button" aria-label="切换主题">
+                        <i class="bi bi-moon-stars me-1"></i>
+                        <span id="themeToggleText">深色</span>
+                    </button>
+                    <ul class="navbar-nav ms-auto">
+                        <li class="nav-item">
+                            <a class="nav-link" href="#single">单个转录</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="#batch">批量转录</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="#history">历史记录</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="/docs" target="_blank">API文档</a>
+                        </li>
+                    </ul>
+                </div>
             </div>
         </div>
     </nav>
 
     <!-- 主要内容 -->
-    <div class="container mt-4">
+    <div class="container py-4 app-shell">
         <!-- 欢迎横幅 -->
         <div class="row mb-4">
             <div class="col-12">
-                <div class="jumbotron bg-gradient p-5 rounded-3 text-white text-center">
-                    <h1 class="display-4 fw-bold">🎥 <span style="color: #0d6efd;">视频转文本工具</span></h1>
-                    <p class="lead">上传视频文件，基于OpenAI Whisper高精度语音识别</p>
-                    <div class="d-flex justify-content-center gap-3 mt-3">
-                        <span class="badge bg-success fs-6">🔒 本地处理</span>
-                        <span class="badge bg-info fs-6">🤖 AI驱动</span>
-                        <span class="badge bg-warning fs-6">⚡ 快速准确</span>
+                <div class="jumbotron hero-panel p-4 rounded-4 text-white">
+                    <div class="hero-grid">
+                        <div>
+                            <p class="hero-kicker mb-2">Video Transcriber</p>
+                            <h1 class="display-4 fw-bold mb-3">视频转文本工具</h1>
+                            <p class="lead mb-3">上传视频文件，基于 SenseVoice 的高精度语音识别，快速生成文本与字幕。</p>
+                            <div class="d-flex flex-wrap gap-2 mt-2">
+                                <span class="badge hero-badge fs-6"><i class="bi bi-shield-lock me-2"></i>本地处理</span>
+                                <span class="badge hero-badge fs-6"><i class="bi bi-cpu me-2"></i>AI 驱动</span>
+                                <span class="badge hero-badge fs-6"><i class="bi bi-lightning-charge me-2"></i>快速准确</span>
+                            </div>
+                        </div>
+                        <div class="hero-stats">
+                            <div class="hero-stat-card">
+                                <div class="hero-stat-label">模型状态</div>
+                                <div class="hero-stat-value" id="modelStatusValue">检测中...</div>
+                            </div>
+                            <div class="hero-stat-card">
+                                <div class="hero-stat-label">GPU状态</div>
+                                <div class="hero-stat-value" id="gpuStatusValue">检测中...</div>
+                            </div>
+                            <div class="hero-stat-card">
+                                <div class="hero-stat-label">最近任务数</div>
+                                <div class="hero-stat-value" id="recentTasksValue">统计中...</div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -73,6 +101,20 @@
                 </button>
             </li>
         </ul>
+
+        <div class="file-status-bar" id="quickTranscribeBar">
+            <div class="file-status-info">
+                <span class="file-status-icon"><i class="bi bi-file-earmark-play-fill"></i></span>
+                <div class="file-status-meta">
+                    <span class="file-status-name" id="quickBarFileName">未选择文件</span>
+                    <span class="file-status-size" id="quickBarFileSize"></span>
+                </div>
+                <span class="file-status-badge">已就绪</span>
+            </div>
+            <button type="button" class="btn quick-action-btn" id="transcribeQuickBtn">
+                <i class="bi bi-play-circle-fill me-2"></i>立即转录
+            </button>
+        </div>
 
         <!-- 标签页内容 -->
         <div class="tab-content" id="mainTabContent">
@@ -196,6 +238,48 @@
                                 <div id="resultStats" class="mt-3 small text-muted"></div>
                             </div>
                         </div>
+
+                        <div class="card mt-3" id="logStreamCard">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <h6 class="card-title mb-0">
+                                    <i class="bi bi-terminal me-2"></i>后端转录日志
+                                </h6>
+                                <div class="d-flex align-items-center gap-2">
+                                    <span class="status-dot" id="logStatusDot"></span>
+                                    <small class="text-muted" id="logStatusText">实时更新</small>
+                                    <button class="btn btn-sm btn-outline-primary" id="refreshLogsBtn" type="button" title="手动刷新">
+                                        <i class="bi bi-arrow-clockwise"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="card-body p-0">
+                                <div class="log-toolbar">
+                                    <div class="log-toolbar-group">
+                                        <label for="logLevelFilter" class="form-label mb-0">级别</label>
+                                        <select id="logLevelFilter" class="form-select form-select-sm">
+                                            <option value="all" selected>全部</option>
+                                            <option value="debug">Debug</option>
+                                            <option value="info">Info</option>
+                                            <option value="warning">Warning</option>
+                                            <option value="error">Error</option>
+                                        </select>
+                                    </div>
+                                    <div class="log-toolbar-group log-search-group">
+                                        <label for="logKeywordInput" class="form-label mb-0">关键词</label>
+                                        <input type="text" class="form-control form-control-sm" id="logKeywordInput" placeholder="输入关键词后回车">
+                                    </div>
+                                    <div class="log-toolbar-group log-toolbar-actions">
+                                        <button class="btn btn-sm btn-outline-warning" id="pauseLogsBtn" type="button">
+                                            <i class="bi bi-pause-circle me-1"></i>暂停
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-success" id="exportLogsBtn" type="button">
+                                            <i class="bi bi-file-earmark-arrow-down me-1"></i>导出
+                                        </button>
+                                    </div>
+                                </div>
+                                <div id="logStreamContent" class="log-stream-content">等待日志...</div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -303,7 +387,7 @@
     </div>
 
     <!-- 页脚 -->
-    <footer class="bg-light mt-5 py-4">
+    <footer class="footer-shell mt-5 py-4">
         <div class="container text-center">
             <p class="text-muted mb-0">
                 Video Transcriber | 基于SenseVoice |
@@ -330,6 +414,6 @@
 
     <!-- JavaScript -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="/static/script.js?v=2"></script>
+    <script src="/static/script.js?v=6"></script>
 </body>
 </html>
