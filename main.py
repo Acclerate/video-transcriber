@@ -164,12 +164,12 @@ def cli(ctx, debug, log_level, skip_deps_check):
 @click.option('--timestamps', is_flag=True, help='包含时间戳')
 @click.option('--quiet', '-q', is_flag=True, help='静默模式')
 def transcribe(file_path, model, language, output, output_format, timestamps, quiet):
-    """转录单个视频文件"""
+    """转录单个媒体文件（视频/音频）"""
     asyncio.run(_transcribe_single(file_path, model, language, output, output_format, timestamps, quiet))
 
 
 async def _transcribe_single(file_path, model, language, output, output_format, timestamps, quiet):
-    """异步转录单个视频文件"""
+    """异步转录单个媒体文件"""
     try:
         if not quiet:
             print_banner()
@@ -349,7 +349,7 @@ async def _transcribe_batch(file_path, model, language, output_dir, output_forma
         for task_id, task_info in task_service.tasks.items():
             if task_info.result:
                 # 生成输出文件名
-                safe_title = task_info.video_info.file_name if task_info.video_info else "unknown"
+                safe_title = task_info.media_info.file_name if task_info.media_info else "unknown"
                 safe_title = "".join(c for c in safe_title if c.isalnum() or c in (' ', '-', '_')).strip()
 
                 output_file = output_path / f"{safe_title}_{task_info.task_id[-8:]}.{output_format}"

@@ -26,7 +26,7 @@ from .task_service import TaskService
 class TranscriptionService:
     """
     转录服务
-    协调音频提取和语音转录的完整流程
+    协调媒体音频提取和语音转录的完整流程
     """
 
     def __init__(self, config: Optional[Settings] = None):
@@ -60,10 +60,10 @@ class TranscriptionService:
         timeout: Optional[int] = None
     ) -> TranscriptionResult:
         """
-        转录单个视频文件
+        转录单个媒体文件
 
         Args:
-            file_path: 视频文件路径
+            file_path: 媒体文件路径
             options: 处理选项
             progress_callback: 进度回调函数 (task_id, progress, message)
             timeout: 自定义超时时间（秒）
@@ -92,20 +92,20 @@ class TranscriptionService:
             started_at=datetime.now(),
             completed_at=None,
             error_message=None,
-            video_info=None,
+            media_info=None,
             result=None
         )
         self.task_service.add_task(task_id, task_info)
 
         try:
-            logger.info(f"开始处理视频文件: {file_path}")
+            logger.info(f"开始处理媒体文件: {file_path}")
 
             # 验证文件
             await self._validate_file(file_path, task_id, progress_callback)
 
-            # 获取视频信息
-            video_info = self.audio_extractor.get_video_info(file_path)
-            task_info.video_info = video_info
+            # 获取媒体信息
+            media_info = self.audio_extractor.get_media_info(file_path)
+            task_info.media_info = media_info
 
             # 提取音频
             audio_path = await self._extract_audio(
@@ -129,13 +129,13 @@ class TranscriptionService:
             if progress_callback:
                 progress_callback(task_id, 100, "处理完成")
 
-            logger.info(f"视频处理完成: {file_path}")
+            logger.info(f"媒体处理完成: {file_path}")
             return result
 
         except asyncio.TimeoutError:
             # 超时处理
             timeout_used = timeout or self.config.TASK_TIMEOUT
-            logger.error(f"视频处理超时: {file_path} (超时时间: {timeout_used}秒)")
+            logger.error(f"媒体处理超时: {file_path} (超时时间: {timeout_used}秒)")
             task_info.status = TaskStatus.FAILED
             task_info.error_message = f"处理超时 (超过 {timeout_used} 秒)"
             task_info.completed_at = datetime.now()
@@ -143,10 +143,10 @@ class TranscriptionService:
             if progress_callback:
                 progress_callback(task_id, 0, f"处理超时")
 
-            raise Exception(f"视频处理超时 (超过 {timeout_used} 秒)")
+            raise Exception(f"媒体处理超时 (超过 {timeout_used} 秒)")
 
         except Exception as e:
-            logger.error(f"视频处理失败: {e}")
+            logger.error(f"媒体处理失败: {e}")
             task_info.status = TaskStatus.FAILED
             task_info.error_message = str(e)
             task_info.completed_at = datetime.now()
@@ -154,7 +154,7 @@ class TranscriptionService:
             if progress_callback:
                 progress_callback(task_id, 0, f"处理失败: {str(e)}")
 
-            raise Exception(f"视频处理失败: {str(e)}")
+            raise Exception(f"媒体处理失败: {str(e)}")
 
     async def transcribe_batch(
         self,
@@ -164,10 +164,10 @@ class TranscriptionService:
         progress_callback: Optional[Callable[[str, Dict[str, Any]], None]] = None
     ) -> Dict[str, Any]:
         """
-        批量转录视频文件
+        批量转录媒体文件
 
         Args:
-            file_paths: 视频文件路径列表
+            file_paths: 媒体文件路径列表
             options: 处理选项
             max_concurrent: 最大并发数
             progress_callback: 进度回调函数 (batch_id, status_info)
@@ -190,7 +190,7 @@ class TranscriptionService:
         if max_concurrent is None:
             max_concurrent = self.config.MAX_CONCURRENT_TASKS
 
-        logger.info(f"开始批量处理 {len(file_paths)} 个视频文件")
+        logger.info(f"开始批量处理 {len(file_paths)} 个媒体文件")
 
         # 创建信号量限制并发数
         semaphore = asyncio.Semaphore(max_concurrent)
@@ -263,12 +263,12 @@ class TranscriptionService:
             )
 
         # 检查文件格式
-        if not self.file_service.is_supported_video_file(file_path):
-            raise Exception(f"不支持的视频格式: {path.suffix}")
+        if not self.file_service.is_supported_file(file_path):
+            raise Exception(f"不支持的媒体格式: {path.suffix}")
 
     async def _extract_audio(
         self,
-        video_path: str,
+        media_path: str,
         task_id: str,
         progress_callback: Optional[Callable[[str, float, str], None]]
     ) -> str:
@@ -280,7 +280,7 @@ class TranscriptionService:
                 progress_callback(task_id, total_progress, "正在提取音频...")
 
         audio_path = await self.audio_extractor.extract_and_optimize(
-            video_path=video_path,
+            media_path=media_path,
             optimize=True,
             progress_callback=update_progress
         )

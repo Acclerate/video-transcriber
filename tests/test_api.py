@@ -220,7 +220,7 @@ class TestStatusEndpoints:
             file_path="/path/to/video.mp4",
             status=TaskStatus.COMPLETED,
             progress=100,
-            video_info=sample_video_info,
+            media_info=sample_video_info,
             result=sample_transcription_result,
             started_at=datetime.now(),
             completed_at=datetime.now(),

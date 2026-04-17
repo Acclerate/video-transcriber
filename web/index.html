@@ -125,18 +125,18 @@
                         <div class="card">
                             <div class="card-header">
                                 <h5 class="card-title mb-0">
-                                    <i class="bi bi-cloud-upload me-2"></i>上传视频文件
+                                    <i class="bi bi-cloud-upload me-2"></i>上传媒体文件
                                 </h5>
                             </div>
                             <div class="card-body">
                                 <!-- 文件上传区域 -->
                                 <div class="mb-4">
                                     <div class="upload-area" id="uploadArea">
-                                        <input type="file" class="form-control" id="videoFile" accept="video/*" style="display: none;">
+                                        <input type="file" class="form-control" id="videoFile" accept="video/*,audio/*,.m4a,.aac,.flac,.ogg,.wma" style="display: none;">
                                         <div class="upload-placeholder text-center py-5">
                                             <i class="bi bi-cloud-arrow-up display-4 text-muted"></i>
-                                            <p class="mt-3 mb-2">拖拽视频文件到此处，或点击选择文件</p>
-                                            <small class="text-muted">支持 MP4, AVI, MKV, MOV 等格式，最大1GB</small>
+                                            <p class="mt-3 mb-2">拖拽视频/音频文件到此处，或点击选择文件</p>
+                                            <small class="text-muted">支持 MP4, MKV, MOV, M4A, MP3, WAV, FLAC 等格式，最大1GB</small>
                                         </div>
                                         <div class="file-info" id="fileInfo" style="display: none;">
                                             <div class="d-flex align-items-center">
@@ -299,12 +299,12 @@
                                     <div class="col-lg-6">
                                         <!-- 批量文件上传 -->
                                         <div class="mb-3">
-                                            <label class="form-label">选择视频文件（最多10个）</label>
+                                            <label class="form-label">选择媒体文件（最多10个）</label>
                                             <div class="upload-area" id="batchUploadArea">
-                                                <input type="file" class="form-control" id="batchFiles" accept="video/*" multiple style="display: none;">
+                                                <input type="file" class="form-control" id="batchFiles" accept="video/*,audio/*,.m4a,.aac,.flac,.ogg,.wma" multiple style="display: none;">
                                                 <div class="upload-placeholder text-center py-4">
                                                     <i class="bi bi-files display-4 text-muted"></i>
-                                                    <p class="mt-3 mb-2">拖拽多个视频文件到此处，或点击选择</p>
+                                                    <p class="mt-3 mb-2">拖拽多个视频/音频文件到此处，或点击选择</p>
                                                     <small class="text-muted">单次最多支持10个文件</small>
                                                 </div>
                                             </div>

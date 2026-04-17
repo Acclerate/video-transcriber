@@ -1,6 +1,6 @@
-# Video Transcriber 🎥➡️📝
+# Video Transcriber 🎥🎵➡️📝
 
-一个视频文件转文本工具，基于SenseVoice实现高精度多语言语音识别。
+一个视频/音频文件转文本工具，基于SenseVoice实现高精度多语言语音识别。支持 MP4、MKV、AVI 等视频格式及 M4A、MP3、WAV、FLAC 等音频格式直接输入。
 
 ![Python](https://img.shields.io/badge/python-3.10%20%28recommended%29-blue.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
@@ -8,12 +8,13 @@
 
 ## ✨ 特性
 
-- 📤 **文件上传**: 直接上传视频文件进行处理（最大支持1GB）
+- 📤 **文件上传**: 直接上传视频或音频文件进行处理（最大支持1GB）
+- 🎵 **音频直传**: 支持 M4A、MP3、WAV、AAC、FLAC、OGG 等音频格式直接转录，无需视频容器
 - 🤖 **高精度转录**: 基于SenseVoice，准确率95%+，中文优化
 - 🔒 **隐私保护**: 本地处理，数据不外泄
 - 🌐 **Web界面**: 简洁易用的Web界面
-- ⚡ **批量处理**: 支持多个视频同时转录
-- 🎵 **智能音频**: 自动提取和优化音频质量
+- ⚡ **批量处理**: 支持多个视频/音频同时转录
+- 🎶 **智能音频**: 自动提取和优化音频质量
 - 📝 **多种格式**: 支持JSON、TXT、SRT、VTT输出
 - 🔄 **实时状态**: 实时显示处理进度
 - 🎯 **长视频分割**: 自动将长音频分段处理，有效避免CUDA OOM错误，支持超长视频转录
@@ -22,6 +23,8 @@
 - 🔄 **自动重试**: 网络或临时错误自动重试
 - 🇨🇳 **中文优化**: 默认中文转录，避免误识别为英语
 - ✨ **标点符号**: 自动添加标点符号，提高可读性
+
+![alt text](images\image.png)
 
 ## 🚀 快速开始
 
@@ -159,8 +162,8 @@ python main.py serve
 2. 访问 `http://localhost:8665`
 
 3. 使用方式:
-   - **单个转录**: 上传视频文件，选择模型和语言，点击开始转录
-   - **批量转录**: 一次上传多个视频文件（最多20个），自动批量处理
+   - **单个转录**: 上传视频或音频文件，选择模型和语言，点击开始转录
+   - **批量转录**: 一次上传多个视频/音频文件（最多20个），自动批量处理
 
 ### API 使用
 
@@ -175,7 +178,7 @@ uvicorn api.main:app --host 0.0.0.0 --port 8665
 ```python
 import requests
 
-# 单个文件转录
+# 单个文件转录（视频）
 files = {"files": open("video.mp4", "rb")}
 data = {
     "model": "sensevoice-small",
@@ -187,7 +190,12 @@ response = requests.post("http://localhost:8665/api/v1/transcribe/file", files=f
 result = response.json()
 print(result["data"]["transcription"]["text"])
 
-# 批量转录
+# 单个文件转录（音频，如 m4a）
+files = {"files": open("recording.m4a", "rb")}
+data = {"model": "sensevoice-small", "language": "zh", "format": "txt"}
+response = requests.post("http://localhost:8665/api/v1/transcribe/file", files=files, data=data)
+
+# 批量转录（可混合视频和音频）
 files = [("files", open(f"video{i}.mp4", "rb")) for i in range(3)]
 data = {
     "model": "sensevoice-small",
@@ -200,19 +208,24 @@ response = requests.post("http://localhost:8665/api/v1/transcribe/batch", files=
 ### 命令行使用
 
 ```bash
-# 基础转录
+# 基础转录（视频）
 python main.py transcribe /path/to/video.mp4
+
+# 直接转录音频文件（m4a、mp3、wav、flac 等）
+python main.py transcribe /path/to/recording.m4a
+python main.py transcribe /path/to/podcast.mp3
+python main.py transcribe /path/to/interview.wav
 
 # 指定模型
 python main.py transcribe /path/to/video.mp4 --model sensevoice-small
 
 # 指定语言
-python main.py transcribe /path/to/video.mp4 --language zh
+python main.py transcribe /path/to/recording.m4a --language zh
 
 # 包含时间戳
 python main.py transcribe /path/to/video.mp4 --timestamps
 
-# 批量处理
+# 批量处理（文件列表可混合视频和音频路径）
 python main.py batch file_list.txt
 
 # 指定输出格式 (txt/json/srt/vtt)
@@ -330,19 +343,25 @@ CORS_ORIGINS=["*"]
 | ko | 韩语 | ru | 俄语 |
 | auto | 自动检测 | - | - |
 
-### 支持的视频格式
+### 支持的媒体格式
+
+> 视频和音频文件均可直接作为输入，无需手动转换。
+
+#### 视频格式
 
 | 格式 | 扩展名 | 状态 |
 |------|--------|------|
-| MP4 | .mp4, .m4v | ✅ |
+| MP4 | .mp4 | ✅ |
+| M4V | .m4v | ✅ |
 | AVI | .avi | ✅ |
 | MKV | .mkv | ✅ |
 | MOV | .mov | ✅ |
 | WMV | .wmv | ✅ |
 | FLV | .flv | ✅ |
 | WebM | .webm | ✅ |
+| MPEG | .mpeg, .mpg, .mp2 | ✅ |
 
-### 支持的音频格式
+#### 音频格式（直接输入）
 
 | 格式 | 扩展名 | 状态 |
 |------|--------|------|
@@ -352,6 +371,7 @@ CORS_ORIGINS=["*"]
 | AAC | .aac | ✅ |
 | FLAC | .flac | ✅ |
 | OGG | .ogg | ✅ |
+| WMA | .wma | ✅ |
 
 ## 📁 项目结构
 
@@ -404,8 +424,8 @@ video-transcriber/
 | 端点 | 方法 | 描述 |
 |------|------|------|
 | `/api/v1/health` | GET | 健康检查 |
-| `/api/v1/transcribe/file` | POST | 上传文件转录 |
-| `/api/v1/transcribe/batch` | POST | 批量转录（多文件上传） |
+| `/api/v1/transcribe/file` | POST | 上传视频/音频文件转录 |
+| `/api/v1/transcribe/batch` | POST | 批量转录（多文件上传，支持视频/音频混合） |
 | `/api/v1/task/{task_id}` | GET | 查询任务状态 |
 | `/api/v1/tasks` | GET | 列出最近的任务 |
 | `/api/v1/models` | GET | 获取可用模型 |
@@ -415,12 +435,19 @@ video-transcriber/
 ### 请求示例
 
 ```bash
-# 单个文件转录
+# 单个文件转录（视频）
 curl -X POST "http://localhost:8665/api/v1/transcribe/file" \
   -F "files=@video.mp4" \
   -F "model=sensevoice-small" \
   -F "language=zh" \
   -F "format=json"
+
+# 单个文件转录（音频，如 m4a / mp3 / wav）
+curl -X POST "http://localhost:8665/api/v1/transcribe/file" \
+  -F "files=@recording.m4a" \
+  -F "model=sensevoice-small" \
+  -F "language=zh" \
+  -F "format=txt"
 
 # 批量转录 (最多20个文件)
 curl -X POST "http://localhost:8665/api/v1/transcribe/batch" \
@@ -460,7 +487,7 @@ curl "http://localhost:8665/api/v1/stats"
 - **CPU**: 2-4核推荐
 - **内存**: 4GB+ (SenseVoice Small模型)
 - **GPU**: 可选，2-3倍加速效果
-- **磁盘**: 临时文件约50-200MB/视频
+- **磁盘**: 临时文件约50-200MB/媒体文件
 
 ## 🐛 故障排除
 
@@ -854,7 +881,7 @@ pytest --cov=. --cov-report=html
 
 - [ ] 模型量化与加速
 - [ ] 流式转录支持
-- [ ] 更多音频格式支持
+- [x] ~~更多音频格式支持~~ — 已完成：M4A、MP3、WAV、AAC、FLAC、OGG、WMA 均可直接输入
 - [ ] 分布式处理能力
 
 ### 优先级说明

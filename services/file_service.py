@@ -35,6 +35,21 @@ class FileService:
     # 文件验证
     # ============================================================
 
+    def is_supported_media_file(self, file_path: str) -> bool:
+        """
+        检查是否为支持的媒体文件（视频或音频）
+
+        Args:
+            file_path: 文件路径
+
+        Returns:
+            bool: 是否支持
+        """
+        return (
+            self.is_supported_video_file(file_path) or
+            self.is_supported_audio_file(file_path)
+        )
+
     def is_supported_video_file(self, file_path: str) -> bool:
         """
         检查是否为支持的视频文件
@@ -71,10 +86,7 @@ class FileService:
         Returns:
             bool: 是否支持
         """
-        return (
-            self.is_supported_video_file(file_path) or
-            self.is_supported_audio_file(file_path)
-        )
+        return self.is_supported_media_file(file_path)
 
     async def validate_file(
         self,

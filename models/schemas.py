@@ -47,8 +47,8 @@ class Language(str, Enum):
     RUSSIAN = "ru"
 
 
-class VideoFormat(str, Enum):
-    """支持的视频格式"""
+class MediaFormat(str, Enum):
+    """支持的媒体格式（视频与音频）"""
     MP4 = "mp4"
     AVI = "avi"
     MKV = "mkv"
@@ -58,19 +58,26 @@ class VideoFormat(str, Enum):
     WEBM = "webm"
     MPEG = "mpeg"
     M4V = "m4v"
+    MP3 = "mp3"
+    WAV = "wav"
+    M4A = "m4a"
+    AAC = "aac"
+    FLAC = "flac"
+    OGG = "ogg"
+    WMA = "wma"
 
 
 # =============================================================================
 # 基础数据模型
 # =============================================================================
 
-class VideoFileInfo(BaseModel):
-    """视频文件信息"""
-    file_path: str = Field(..., description="视频文件路径")
+class MediaFileInfo(BaseModel):
+    """媒体文件信息"""
+    file_path: str = Field(..., description="媒体文件路径")
     file_name: str = Field(..., description="文件名")
     file_size: int = Field(..., description="文件大小(字节)")
-    duration: Optional[float] = Field(None, description="视频时长(秒)")
-    format: VideoFormat = Field(..., description="视频格式")
+    duration: Optional[float] = Field(None, description="媒体时长(秒)")
+    format: MediaFormat = Field(..., description="媒体格式")
 
     @validator('file_path')
     def file_path_must_exist(cls, v):
@@ -157,7 +164,7 @@ class ProcessOptions(BaseModel):
 
 class TranscribeRequest(BaseModel):
     """转录请求"""
-    file_path: str = Field(..., description="视频文件路径")
+    file_path: str = Field(..., description="媒体文件路径")
     options: ProcessOptions = Field(
         default=ProcessOptions(
             model=TranscriptionModel.SENSEVOICE_SMALL,
@@ -173,7 +180,7 @@ class TranscribeRequest(BaseModel):
 
 class BatchTranscribeRequest(BaseModel):
     """批量转录请求"""
-    file_paths: List[str] = Field(..., min_length=1, max_length=20, description="视频文件路径列表")
+    file_paths: List[str] = Field(..., min_length=1, max_length=20, description="媒体文件路径列表")
     options: ProcessOptions = Field(
         default=ProcessOptions(
             model=TranscriptionModel.SENSEVOICE_SMALL,
@@ -191,15 +198,25 @@ class BatchTranscribeRequest(BaseModel):
 class TaskInfo(BaseModel):
     """任务信息"""
     task_id: str = Field(..., description="任务ID")
-    file_path: str = Field(..., description="视频文件路径")
+    file_path: str = Field(..., description="媒体文件路径")
     status: TaskStatus = Field(..., description="任务状态")
     progress: int = Field(0, ge=0, le=100, description="进度百分比")
     created_at: datetime = Field(default_factory=datetime.now, description="创建时间")
     started_at: Optional[datetime] = Field(None, description="开始时间")
     completed_at: Optional[datetime] = Field(None, description="完成时间")
     error_message: Optional[str] = Field(None, description="错误信息")
-    video_info: Optional[VideoFileInfo] = Field(None, description="视频信息")
+    media_info: Optional[MediaFileInfo] = Field(None, description="媒体信息")
     result: Optional[TranscriptionResult] = Field(None, description="转录结果")
+
+    @property
+    def video_info(self):
+        """兼容旧字段名。"""
+        return self.media_info
+
+    @video_info.setter
+    def video_info(self, value):
+        """兼容旧字段名。"""
+        self.media_info = value
 
     class Config:
         json_encoders = {
@@ -351,6 +368,11 @@ class AppConfig(BaseModel):
         case_sensitive = False
 
 
+# 向后兼容别名
+VideoFormat = MediaFormat
+VideoFileInfo = MediaFileInfo
+
+
 # =============================================================================
 # 导出所有模型
 # =============================================================================
@@ -358,10 +380,10 @@ class AppConfig(BaseModel):
 __all__ = [
     # 枚举
     "TaskStatus", "TranscriptionModel", "OutputFormat", "Language",
-    "VideoFormat", "WSMessageType", "ErrorCode",
+    "MediaFormat", "VideoFormat", "WSMessageType", "ErrorCode",
 
     # 基础模型
-    "VideoFileInfo", "TranscriptionSegment", "TranscriptionResult",
+    "MediaFileInfo", "VideoFileInfo", "TranscriptionSegment", "TranscriptionResult",
 
     # 请求模型
     "ProcessOptions", "TranscribeRequest", "BatchTranscribeRequest",

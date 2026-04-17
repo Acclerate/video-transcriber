@@ -1,6 +1,6 @@
 """
 转录路由
-处理视频转录相关的 API 端点
+处理媒体转录相关的 API 端点
 """
 
 from collections import deque
@@ -104,10 +104,10 @@ async def transcribe_file(
     file_service: FileService = Depends(get_file_service)
 ):
     """
-    转录上传的视频文件
+    转录上传的媒体文件（视频/音频）
 
     Args:
-        file: 上传的视频文件
+        file: 上传的媒体文件
         model: 语音识别模型 (默认: sensevoice-small)
         language: 目标语言
         format: 输出格式
@@ -185,7 +185,7 @@ async def transcribe_file(
 @limiter.limit(f"{settings.RATE_LIMIT_PER_MINUTE}/minute")
 async def transcribe_batch(
     request: Request,
-    files: List[UploadFile] = File(..., description="要转录的视频文件列表"),
+    files: List[UploadFile] = File(..., description="要转录的媒体文件列表"),
     model: str = Form(default=settings.DEFAULT_MODEL),
     language: str = Form(default="auto"),
     format: str = Form(default="txt"),
@@ -195,10 +195,10 @@ async def transcribe_batch(
     file_service: FileService = Depends(get_file_service)
 ):
     """
-    批量转录视频文件
+    批量转录媒体文件
 
     Args:
-        files: 上传的视频文件列表 (最多20个)
+        files: 上传的媒体文件列表 (最多20个)
         model: 语音识别模型 (默认: sensevoice-small)
         language: 目标语言
         format: 输出格式

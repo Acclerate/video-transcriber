@@ -69,11 +69,11 @@ class VideoTranscriberUI {
             e.preventDefault();
             uploadArea.classList.remove('drag-over');
             const file = e.dataTransfer.files[0];
-            if (file && file.type.startsWith('video/')) {
+            if (file && (file.type.startsWith('video/') || file.type.startsWith('audio/'))) {
                 videoFileInput.files = e.dataTransfer.files;
                 this.handleFileSelect(file);
             } else {
-                this.showToast('请上传视频文件', 'warning');
+                this.showToast('请上传视频或音频文件', 'warning');
             }
         });
 
@@ -123,12 +123,12 @@ class VideoTranscriberUI {
         batchUploadArea.addEventListener('drop', (e) => {
             e.preventDefault();
             batchUploadArea.classList.remove('drag-over');
-            const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('video/'));
+            const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('video/') || f.type.startsWith('audio/'));
             if (files.length > 0) {
                 batchFilesInput.files = e.dataTransfer.files;
                 this.handleBatchFilesSelect(files);
             } else {
-                this.showToast('请上传视频文件', 'warning');
+                this.showToast('请上传视频或音频文件', 'warning');
             }
         });
 
@@ -589,9 +589,9 @@ class VideoTranscriberUI {
     handleFileSelect(file) {
         if (!file) return;
 
-        // 验证文件类型
-        if (!file.type.startsWith('video/')) {
-            this.showToast('请选择视频文件', 'warning');
+        // 验证文件类型（视频或音频）
+        if (!file.type.startsWith('video/') && !file.type.startsWith('audio/')) {
+            this.showToast('请选择视频或音频文件', 'warning');
             return;
         }
 
@@ -651,8 +651,8 @@ class VideoTranscriberUI {
         this.selectedBatchFiles = [];
 
         for (const file of Array.from(files)) {
-            if (!file.type.startsWith('video/')) {
-                this.showToast(`跳过非视频文件: ${file.name}`, 'warning');
+            if (!file.type.startsWith('video/') && !file.type.startsWith('audio/')) {
+                this.showToast(`跳过不支持的文件: ${file.name}`, 'warning');
                 continue;
             }
             if (file.size > maxSize) {
@@ -663,7 +663,7 @@ class VideoTranscriberUI {
         }
 
         if (this.selectedBatchFiles.length === 0) {
-            this.showToast('没有有效的视频文件', 'warning');
+            this.showToast('没有有效的媒体文件', 'warning');
             return;
         }
 

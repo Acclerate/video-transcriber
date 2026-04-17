@@ -1,6 +1,6 @@
 """
 音频提取模块
-从本地视频文件中提取音频并进行优化
+从本地媒体文件（视频/音频）中提取音频并进行优化
 """
 
 import os
@@ -14,7 +14,7 @@ from datetime import datetime
 from pydub import AudioSegment
 from loguru import logger
 
-from models.schemas import VideoFileInfo, VideoFormat
+from models.schemas import MediaFileInfo, MediaFormat
 from utils.ffmpeg import configure_pydub_ffmpeg, get_ffmpeg_path
 
 
@@ -38,27 +38,35 @@ class AudioExtractor:
         # 将 FFmpeg 完整路径配置到 pydub，避免 PATH 环境变量问题
         configure_pydub_ffmpeg()
 
-        # 支持的视频格式
+        # 支持的媒体格式（视频 + 音频）
         self.supported_formats = {
-            VideoFormat.MP4: ['.mp4', '.m4v'],
-            VideoFormat.AVI: ['.avi'],
-            VideoFormat.MKV: ['.mkv'],
-            VideoFormat.MOV: ['.mov'],
-            VideoFormat.WMV: ['.wmv'],
-            VideoFormat.FLV: ['.flv'],
-            VideoFormat.WEBM: ['.webm'],
-            VideoFormat.MPEG: ['.mpeg', '.mpg', '.mp2', '.mp3'],
+            MediaFormat.MP4: ['.mp4'],
+            MediaFormat.AVI: ['.avi'],
+            MediaFormat.MKV: ['.mkv'],
+            MediaFormat.MOV: ['.mov'],
+            MediaFormat.WMV: ['.wmv'],
+            MediaFormat.FLV: ['.flv'],
+            MediaFormat.WEBM: ['.webm'],
+            MediaFormat.MPEG: ['.mpeg', '.mpg', '.mp2'],
+            MediaFormat.M4V: ['.m4v'],
+            MediaFormat.MP3: ['.mp3'],
+            MediaFormat.WAV: ['.wav'],
+            MediaFormat.M4A: ['.m4a'],
+            MediaFormat.AAC: ['.aac'],
+            MediaFormat.FLAC: ['.flac'],
+            MediaFormat.OGG: ['.ogg'],
+            MediaFormat.WMA: ['.wma'],
         }
 
-    def get_video_info(self, file_path: str) -> VideoFileInfo:
+    def get_media_info(self, file_path: str) -> MediaFileInfo:
         """
-        获取视频文件信息
+        获取媒体文件信息
 
         Args:
-            file_path: 视频文件路径
+            file_path: 媒体文件路径
 
         Returns:
-            VideoFileInfo: 视频文件信息
+            MediaFileInfo: 媒体文件信息
         """
         try:
             path = Path(file_path)
@@ -74,13 +82,13 @@ class AudioExtractor:
             file_size = path.stat().st_size
             file_ext = path.suffix.lower()
 
-            # 检测视频格式
+            # 检测媒体格式
             format_type = self._detect_format(file_ext)
 
-            # 获取视频时长
-            duration = self._get_video_duration(file_path)
+            # 获取媒体时长
+            duration = self._get_media_duration(file_path)
 
-            return VideoFileInfo(
+            return MediaFileInfo(
                 file_path=str(path.absolute()),
                 file_name=file_name,
                 file_size=file_size,
@@ -89,19 +97,23 @@ class AudioExtractor:
             )
 
         except Exception as e:
-            logger.error(f"获取视频信息失败: {e}")
-            raise Exception(f"获取视频信息失败: {str(e)}")
+            logger.error(f"获取媒体信息失败: {e}")
+            raise Exception(f"获取媒体信息失败: {str(e)}")
 
-    def _detect_format(self, file_ext: str) -> VideoFormat:
-        """检测视频格式"""
+    def get_video_info(self, file_path: str) -> MediaFileInfo:
+        """兼容旧方法名。"""
+        return self.get_media_info(file_path)
+
+    def _detect_format(self, file_ext: str) -> MediaFormat:
+        """检测媒体格式"""
         for format_type, extensions in self.supported_formats.items():
             if file_ext in extensions:
                 return format_type
         # 默认返回扩展名作为格式
-        return VideoFormat(file_ext.lstrip('.'))
+        return MediaFormat(file_ext.lstrip('.'))
 
-    def _get_video_duration(self, file_path: str) -> Optional[float]:
-        """获取视频时长"""
+    def _get_media_duration(self, file_path: str) -> Optional[float]:
+        """获取媒体时长"""
         try:
             ffmpeg = get_ffmpeg_path() or "ffmpeg"
             result = subprocess.run(
@@ -117,20 +129,25 @@ class AudioExtractor:
                 return h * 3600 + m * 60 + s
             return None
         except Exception as e:
-            logger.warning(f"无法获取视频时长: {e}")
+            logger.warning(f"无法获取媒体时长: {e}")
             return None
+
+    def _get_video_duration(self, file_path: str) -> Optional[float]:
+        """兼容旧方法名。"""
+        return self._get_media_duration(file_path)
 
     async def extract_audio(
         self,
-        video_path: str,
+        media_path: Optional[str] = None,
+        video_path: Optional[str] = None,
         output_format: str = "wav",
         progress_callback: Optional[Callable[[float], None]] = None
     ) -> str:
         """
-        从视频文件中提取音频
+        从媒体文件中提取音频
 
         Args:
-            video_path: 视频文件路径
+            media_path: 媒体文件路径
             output_format: 输出音频格式 (wav, mp3, m4a)
             progress_callback: 进度回调函数
 
@@ -138,17 +155,21 @@ class AudioExtractor:
             str: 提取的音频文件路径
         """
         try:
-            logger.info(f"开始提取音频: {video_path}")
+            input_path = media_path or video_path
+            if not input_path:
+                raise Exception("未提供媒体文件路径")
 
-            if not os.path.exists(video_path):
-                raise Exception(f"视频文件不存在: {video_path}")
+            logger.info(f"开始提取音频: {input_path}")
+
+            if not os.path.exists(input_path):
+                raise Exception(f"媒体文件不存在: {input_path}")
 
             if progress_callback:
                 progress_callback(10)
 
             # 生成音频文件路径
-            video_name = Path(video_path).stem
-            audio_path = self.temp_dir / f"{video_name}_extracted.{output_format}"
+            media_name = Path(input_path).stem
+            audio_path = self.temp_dir / f"{media_name}_extracted.{output_format}"
 
             ffmpeg = get_ffmpeg_path() or "ffmpeg"
 
@@ -158,7 +179,7 @@ class AudioExtractor:
             # 直接用 ffmpeg 提取音频（不依赖 pydub/ffprobe）
             if output_format.lower() == "wav":
                 cmd = [
-                    ffmpeg, "-y", "-i", video_path,
+                    ffmpeg, "-y", "-i", input_path,
                     "-vn",                   # 不要视频
                     "-acodec", "pcm_s16le",  # 16-bit PCM
                     "-ar", "16000",          # 16kHz 采样率
@@ -167,7 +188,7 @@ class AudioExtractor:
                 ]
             elif output_format.lower() == "mp3":
                 cmd = [
-                    ffmpeg, "-y", "-i", video_path,
+                    ffmpeg, "-y", "-i", input_path,
                     "-vn",
                     "-acodec", "libmp3lame",
                     "-ar", "44100",
@@ -176,7 +197,7 @@ class AudioExtractor:
                 ]
             else:
                 cmd = [
-                    ffmpeg, "-y", "-i", video_path,
+                    ffmpeg, "-y", "-i", input_path,
                     "-vn",
                     str(audio_path)
                 ]
@@ -302,7 +323,8 @@ class AudioExtractor:
 
     async def extract_and_optimize(
         self,
-        video_path: str,
+        media_path: Optional[str] = None,
+        video_path: Optional[str] = None,
         optimize: bool = True,
         progress_callback: Optional[Callable[[float], None]] = None
     ) -> str:
@@ -310,7 +332,7 @@ class AudioExtractor:
         提取音频并优化
 
         Args:
-            video_path: 视频文件路径
+            media_path: 媒体文件路径
             optimize: 是否优化音频
             progress_callback: 进度回调
 
@@ -318,9 +340,13 @@ class AudioExtractor:
             str: 音频文件路径
         """
         try:
+            input_path = media_path or video_path
+            if not input_path:
+                raise Exception("未提供媒体文件路径")
+
             # 提取音频
             audio_path = await self.extract_audio(
-                video_path=video_path,
+                media_path=input_path,
                 output_format="wav",
                 progress_callback=lambda p: progress_callback(p * 0.5) if progress_callback else None
             )
@@ -401,16 +427,16 @@ class AudioExtractor:
 audio_extractor = AudioExtractor()
 
 
-async def extract_audio_from_video(
-    video_path: str,
+async def extract_audio_from_media(
+    media_path: str,
     optimize: bool = True,
     progress_callback: Optional[Callable[[float], None]] = None
 ) -> str:
     """
-    从视频文件提取音频的便捷函数
+    从媒体文件提取音频的便捷函数
 
     Args:
-        video_path: 视频文件路径
+        media_path: 媒体文件路径
         optimize: 是否优化音频
         progress_callback: 进度回调
 
@@ -418,7 +444,20 @@ async def extract_audio_from_video(
         str: 音频文件路径
     """
     return await audio_extractor.extract_and_optimize(
-        video_path=video_path,
+        media_path=media_path,
+        optimize=optimize,
+        progress_callback=progress_callback
+    )
+
+
+async def extract_audio_from_video(
+    video_path: str,
+    optimize: bool = True,
+    progress_callback: Optional[Callable[[float], None]] = None
+) -> str:
+    """兼容旧函数名。"""
+    return await extract_audio_from_media(
+        media_path=video_path,
         optimize=optimize,
         progress_callback=progress_callback
     )

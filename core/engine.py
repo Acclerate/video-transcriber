@@ -13,10 +13,10 @@ from pathlib import Path
 from loguru import logger
 
 from models.schemas import (
-    VideoFileInfo, TranscriptionResult, TaskInfo, BatchTaskInfo,
+    MediaFileInfo, TranscriptionResult, TaskInfo, BatchTaskInfo,
     TaskStatus, ProcessOptions, TranscriptionModel, Language, OutputFormat
 )
-from .downloader import audio_extractor, extract_audio_from_video
+from .downloader import audio_extractor, extract_audio_from_media
 
 
 class VideoTranscriptionEngine:
@@ -88,7 +88,7 @@ class VideoTranscriptionEngine:
                 started_at=datetime.now(),
                 completed_at=None,
                 error_message=None,
-                video_info=None,
+                media_info=None,
                 result=None
             )
             self.tasks[task_id] = task_info
@@ -99,15 +99,15 @@ class VideoTranscriptionEngine:
                 if progress_callback:
                     progress_callback(task_id, progress, message)
 
-            # 1. 获取视频文件信息
+            # 1. 获取媒体文件信息
             update_progress(5, "正在读取视频文件信息...")
             task_info.status = TaskStatus.EXTRACTING
 
-            video_file_info = audio_extractor.get_video_info(file_path)
-            task_info.video_info = video_file_info
+            media_file_info = audio_extractor.get_media_info(file_path)
+            task_info.media_info = media_file_info
 
-            logger.info(f"视频文件信息: {video_file_info.file_name}, 大小: {video_file_info.file_size} 字节")
-            update_progress(10, f"读取成功: {video_file_info.file_name}")
+            logger.info(f"媒体文件信息: {media_file_info.file_name}, 大小: {media_file_info.file_size} 字节")
+            update_progress(10, f"读取成功: {media_file_info.file_name}")
 
             # 2. 提取音频
             def extract_progress(progress: float):
@@ -115,8 +115,8 @@ class VideoTranscriptionEngine:
                 total_progress = 10 + (progress * 0.4)
                 update_progress(total_progress, "正在提取音频...")
 
-            audio_path = await extract_audio_from_video(
-                video_path=file_path,
+            audio_path = await extract_audio_from_media(
+                media_path=file_path,
                 optimize=True,
                 progress_callback=extract_progress
             )
