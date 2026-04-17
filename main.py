@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Video Transcriber - 视频文件转文本工具
+Video Transcriber - 音视频转文本工具
 主程序入口和命令行界面
 """
 
@@ -95,9 +95,9 @@ def print_banner():
     banner = """
 ╭─────────────────────────────────────────╮
 │          Video Transcriber              │
-│         视频文件转文本工具                 │
+│         音视频转文本工具                   │
 │                                         │
-│    🎥 支持本地视频文件                   │
+│    🎥 支持本地音视频文件                 │
 │    🤖 基于SenseVoice高精度多语言识别      │
 │    🔒 本地处理，保护隐私                   │
 ╰─────────────────────────────────────────╯
@@ -130,7 +130,7 @@ def print_model_info():
 @click.option('--skip-deps-check', is_flag=True, help='跳过依赖检查（不推荐）')
 @click.pass_context
 def cli(ctx, debug, log_level, skip_deps_check):
-    """Video Transcriber - 视频文件转文本工具"""
+    """Video Transcriber - 音视频转文本工具"""
     ctx.ensure_object(dict)
     ctx.obj['debug'] = debug
 
@@ -173,7 +173,7 @@ async def _transcribe_single(file_path, model, language, output, output_format, 
     try:
         if not quiet:
             print_banner()
-            console.print(f"[bold green]开始处理视频文件:[/bold green] {file_path}")
+            console.print(f"[bold green]开始处理文件:[/bold green] {file_path}")
 
         # 验证文件
         file_path_obj = Path(file_path)
@@ -272,7 +272,7 @@ async def _transcribe_single(file_path, model, language, output, output_format, 
 @click.option('--max-concurrent', '-c', default=3, help='最大并发数')
 @click.option('--quiet', '-q', is_flag=True, help='静默模式')
 def batch(file_path, model, language, output_dir, output_format, max_concurrent, quiet):
-    """批量转录视频（从文件读取文件路径列表）"""
+    """批量转录媒体文件（从文件读取文件路径列表）"""
     asyncio.run(_transcribe_batch(file_path, model, language, output_dir, output_format, max_concurrent, quiet))
 
 
@@ -323,7 +323,7 @@ async def _transcribe_batch(file_path, model, language, output_dir, output_forma
             output_path.mkdir(parents=True, exist_ok=True)
 
         # 执行批量处理
-        console.print(f"[bold blue]开始批量处理 {len(valid_paths)} 个视频文件...[/bold blue]")
+        console.print(f"[bold blue]开始批量处理 {len(valid_paths)} 个媒体文件...[/bold blue]")
 
         # 使用服务层
         service = TranscriptionService(settings)

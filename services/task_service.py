@@ -108,7 +108,8 @@ class TaskService:
         # 更新任务信息
         old_status = task.status
         task.status = status
-        task.progress = progress or task.progress
+        if progress is not None:
+            task.progress = progress
 
         if error_message:
             task.error_message = error_message

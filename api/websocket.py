@@ -256,7 +256,7 @@ async def handle_transcribe_request(websocket: WebSocket, data: dict):
         # 发送开始消息
         await ws_manager.send_message(websocket, WSProgressMessage(
             type=WSMessageType.PROGRESS,
-            data={"message": "开始处理视频..."}
+            data={"message": "开始处理媒体文件..."}
         ))
 
         # 执行转录
@@ -283,9 +283,9 @@ async def handle_transcribe_request(websocket: WebSocket, data: dict):
         await ws_manager.send_message(websocket, WSErrorMessage(
             type=WSMessageType.ERROR,
             data={
-                "error": "URL视频处理功能暂未启用",
-                "details": "请使用文件上传方式处理视频",
-                "suggestion": "通过 Web 界面或 POST /api/v1/transcribe/file 上传本地视频文件"
+                "error": "URL处理功能暂未启用",
+                "details": "请使用文件上传方式处理音视频",
+                "suggestion": "通过 Web 界面或 POST /api/v1/transcribe/file 上传本地音视频文件"
             }
         ))
     except Exception as e:

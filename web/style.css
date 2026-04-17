@@ -114,14 +114,49 @@ body {
 
 .navbar-brand {
     color: #f9f8f3;
-    font-size: 1.35rem;
+    font-size: 1.28rem;
     font-weight: 800;
     letter-spacing: 0.2px;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.2rem;
 }
 
 .navbar-brand:hover,
 .navbar-brand:focus {
     color: #ffffff;
+}
+
+.brand-mark {
+    line-height: 1;
+}
+
+.brand-subtitle {
+    margin-left: 0.6rem;
+    padding-left: 0.6rem;
+    border-left: 1px solid rgba(255, 255, 255, 0.32);
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    opacity: 0.86;
+}
+
+.nav-utility-btn {
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    background: rgba(255, 255, 255, 0.14);
+    color: #f1fffd;
+    backdrop-filter: blur(8px);
+    border-radius: 999px;
+    padding: 0.35rem 0.85rem;
+    font-weight: 600;
+}
+
+.nav-utility-btn:hover,
+.nav-utility-btn:focus {
+    color: #ffffff;
+    border-color: rgba(255, 255, 255, 0.6);
+    background: rgba(255, 255, 255, 0.22);
 }
 
 .navbar-nav .nav-link {
@@ -602,6 +637,280 @@ body {
     transition: width 0.28s ease;
 }
 
+/* === Cancel CTA Button (replaces primary CTA during transcription) === */
+.btn-cancel-cta {
+    background: linear-gradient(120deg, #c0392b, #e74c3c) !important;
+    border-color: transparent !important;
+    color: #fff !important;
+    position: relative;
+    overflow: hidden;
+}
+
+.btn-cancel-cta:hover,
+.btn-cancel-cta:focus {
+    background: linear-gradient(120deg, #a93226, #c0392b) !important;
+    border-color: transparent !important;
+    color: #fff !important;
+    box-shadow: 0 10px 30px rgba(192, 57, 43, 0.35);
+}
+
+.btn-cancel-cta:active {
+    transform: scale(0.98) !important;
+}
+
+.btn-cancel-cta::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.12), transparent);
+    animation: cancelCtaSweep 2s ease-in-out infinite;
+}
+
+@keyframes cancelCtaSweep {
+    0%   { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+}
+
+[data-theme="dark"] .btn-cancel-cta {
+    background: linear-gradient(120deg, #a93226, #c0392b) !important;
+}
+
+[data-theme="dark"] .btn-cancel-cta:hover,
+[data-theme="dark"] .btn-cancel-cta:focus {
+    background: linear-gradient(120deg, #922b21, #a93226) !important;
+    box-shadow: 0 10px 30px rgba(192, 57, 43, 0.4);
+}
+
+/* === Progress Strip === */
+.progress-strip {
+    border-radius: var(--radius-md);
+    border: 1px solid rgba(31, 122, 120, 0.22);
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.97), rgba(249, 246, 239, 0.95));
+    box-shadow: var(--shadow-sm);
+    padding: 0.85rem 1rem;
+    margin-bottom: 1rem;
+    animation: progressStripIn 0.38s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes progressStripIn {
+    from { opacity: 0; transform: translateY(-10px) scale(0.98); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.progress-strip-header {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin-bottom: 0.65rem;
+}
+
+.progress-strip-left {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    flex-shrink: 0;
+}
+
+.progress-strip-indicator {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--brand);
+    box-shadow: 0 0 0 0 rgba(31, 122, 120, 0.5);
+    animation: progressPulse 1.6s ease-in-out infinite;
+}
+
+@keyframes progressPulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(31, 122, 120, 0.5); }
+    50%      { box-shadow: 0 0 0 6px rgba(31, 122, 120, 0); }
+}
+
+.progress-strip-title {
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: var(--brand-deep);
+    letter-spacing: 0.01em;
+}
+
+.progress-strip-text {
+    flex: 1;
+    text-align: right;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.progress-strip-track {
+    height: 6px;
+    border-radius: 999px;
+    background: rgba(31, 122, 120, 0.12);
+    overflow: hidden;
+}
+
+.progress-strip-fill {
+    height: 100%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, var(--brand), #32a8a4, var(--brand));
+    background-size: 200% 100%;
+    animation: progressShimmer 2s ease-in-out infinite;
+    transition: width 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes progressShimmer {
+    0%   { background-position: 100% 0; }
+    100% { background-position: -100% 0; }
+}
+
+[data-theme="dark"] .progress-strip {
+    border-color: rgba(109, 211, 205, 0.2);
+    background: linear-gradient(135deg, rgba(28, 39, 45, 0.97), rgba(34, 51, 58, 0.95));
+}
+
+[data-theme="dark"] .progress-strip-indicator {
+    background: #6dd3cd;
+    box-shadow: 0 0 0 0 rgba(109, 211, 205, 0.5);
+}
+
+[data-theme="dark"] .progress-strip-title {
+    color: #bdf3ec;
+}
+
+[data-theme="dark"] .progress-strip-track {
+    background: rgba(109, 211, 205, 0.14);
+}
+
+[data-theme="dark"] .progress-strip-fill {
+    background: linear-gradient(90deg, #39a8a2, #6dd3cd, #39a8a2);
+    background-size: 200% 100%;
+}
+
+/* === Cancel Task Button === */
+.btn-cancel-task {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    color: var(--danger-color);
+    border: 1px solid rgba(181, 64, 60, 0.32);
+    background: rgba(181, 64, 60, 0.06);
+    font-weight: 700;
+    font-size: 0.74rem;
+    padding: 0.3rem 0.78rem;
+    border-radius: 999px;
+    cursor: pointer;
+    white-space: nowrap;
+    flex-shrink: 0;
+    margin-left: auto;
+    transition: color 0.2s ease,
+                background 0.2s ease,
+                border-color 0.2s ease,
+                transform 0.2s ease,
+                box-shadow 0.2s ease;
+}
+
+.btn-cancel-task:hover {
+    color: #fff;
+    background: var(--danger-color);
+    border-color: var(--danger-color);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 14px rgba(181, 64, 60, 0.3);
+}
+
+.btn-cancel-task:focus-visible {
+    outline: 2px solid var(--danger-color);
+    outline-offset: 2px;
+}
+
+.btn-cancel-task:active {
+    transform: scale(0.96);
+    box-shadow: none;
+}
+
+/* Cancel button — confirming state (after first click) */
+.btn-cancel-task.confirming {
+    color: #fff;
+    background: #c0392b;
+    border-color: #c0392b;
+    animation: cancelConfirmPulse 0.8s ease-in-out infinite alternate;
+}
+
+@keyframes cancelConfirmPulse {
+    from { box-shadow: 0 0 0 0 rgba(192, 57, 43, 0.45); }
+    to   { box-shadow: 0 0 0 6px rgba(192, 57, 43, 0); }
+}
+
+/* Cancel button — cancelling state */
+.btn-cancel-task.cancelling {
+    pointer-events: none;
+    opacity: 0.7;
+}
+
+.btn-cancel-task .cancel-spinner {
+    width: 12px;
+    height: 12px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+    display: none;
+}
+
+.btn-cancel-task.cancelling .cancel-spinner {
+    display: inline-block;
+}
+
+.btn-cancel-task.cancelling .cancel-icon {
+    display: none;
+}
+
+/* Progress strip — cancelled state */
+.progress-strip.cancelled .progress-strip-indicator {
+    background: var(--danger-color);
+    animation: none;
+}
+
+.progress-strip.cancelled .progress-strip-fill {
+    background: linear-gradient(90deg, var(--danger-color), #d35f5a);
+    animation: none;
+}
+
+.progress-strip.cancelled .progress-strip-title {
+    color: var(--danger-color);
+}
+
+[data-theme="dark"] .btn-cancel-task {
+    color: #f2a3a0;
+    border-color: rgba(242, 163, 160, 0.28);
+    background: rgba(242, 163, 160, 0.08);
+}
+
+[data-theme="dark"] .btn-cancel-task:hover {
+    color: #fff;
+    background: #c0392b;
+    border-color: #c0392b;
+    box-shadow: 0 4px 14px rgba(192, 57, 43, 0.35);
+}
+
+[data-theme="dark"] .btn-cancel-task.confirming {
+    color: #fff;
+    background: #c0392b;
+    border-color: #c0392b;
+}
+
+[data-theme="dark"] .progress-strip.cancelled .progress-strip-indicator {
+    background: #e74c3c;
+}
+
+[data-theme="dark"] .progress-strip.cancelled .progress-strip-fill {
+    background: linear-gradient(90deg, #e74c3c, #c0392b);
+}
+
+[data-theme="dark"] .progress-strip.cancelled .progress-strip-title {
+    color: #f2a3a0;
+}
+
 .result-content {
     max-height: 420px;
     overflow-y: auto;
@@ -1059,14 +1368,17 @@ body {
         font-size: 0.83rem;
     }
 
-    .log-toolbar {
-        grid-template-columns: 1fr 1fr;
-        gap: 0.45rem;
+    .log-panel-controls {
+        flex-wrap: wrap;
     }
 
-    .log-toolbar-actions {
-        grid-column: span 2;
+    .log-panel-actions {
+        width: 100%;
         justify-content: flex-start;
+    }
+
+    .options-grid {
+        gap: 0.5rem;
     }
 }
 
@@ -1077,7 +1389,16 @@ body {
         margin-top: 0.75rem;
     }
 
+    .brand-subtitle {
+        display: none;
+    }
+
     .theme-toggle-btn {
+        padding: 0.3rem 0.72rem;
+        font-size: 0.82rem;
+    }
+
+    .nav-utility-btn {
         padding: 0.3rem 0.72rem;
         font-size: 0.82rem;
     }
@@ -1120,17 +1441,56 @@ body {
     }
 
     .log-stream-content {
-        min-height: 200px;
-        max-height: 280px;
+        min-height: 180px;
+        max-height: 260px;
     }
 
-    .log-toolbar {
+    .log-panel-controls {
+        flex-direction: column;
+        gap: 0.4rem;
+    }
+
+    .log-panel-controls .form-select,
+    .log-panel-controls .form-control {
+        width: 100%;
+    }
+
+    .log-panel-actions {
+        width: 100%;
+        justify-content: space-between;
+    }
+
+    .options-grid {
         grid-template-columns: 1fr;
     }
 
-    .log-toolbar-actions {
-        grid-column: auto;
-        width: 100%;
-        justify-content: space-between;
+    .result-header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+}
+
+/* === Reduced Motion === */
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+    }
+
+    .progress-strip-fill {
+        animation: none;
+    }
+
+    .progress-strip-indicator,
+    .status-dot {
+        animation: none;
+    }
+
+    .cta-btn::after,
+    .btn-cancel-cta::after {
+        display: none;
     }
 }

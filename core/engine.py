@@ -1,6 +1,6 @@
 """
-视频转录核心引擎
-整合视频文件读取、音频提取和语音转录功能
+媒体转录核心引擎
+整合媒体文件读取、音频提取和语音转录功能
 """
 
 import asyncio
@@ -20,7 +20,7 @@ from .downloader import audio_extractor, extract_audio_from_media
 
 
 class VideoTranscriptionEngine:
-    """视频转录核心引擎"""
+    """媒体转录核心引擎"""
 
     def __init__(self, temp_dir: str = "./temp", task_timeout: int = 3600, keep_temp_files: bool = False):
         """
@@ -57,10 +57,10 @@ class VideoTranscriptionEngine:
         timeout: Optional[int] = None
     ) -> TranscriptionResult:
         """
-        处理单个本地视频文件
+        处理单个本地媒体文件
 
         Args:
-            file_path: 视频文件路径
+            file_path: 媒体文件路径
             options: 处理选项
             progress_callback: 进度回调 (task_id, progress, message)
             timeout: 自定义超时时间（秒），None则使用默认值
@@ -76,7 +76,7 @@ class VideoTranscriptionEngine:
         actual_timeout = timeout or self.task_timeout
 
         try:
-            logger.info(f"开始处理视频文件: {file_path} (超时: {actual_timeout}秒)")
+            logger.info(f"开始处理媒体文件: {file_path} (超时: {actual_timeout}秒)")
             start_time = time.time()
 
             # 创建任务记录
@@ -100,7 +100,7 @@ class VideoTranscriptionEngine:
                     progress_callback(task_id, progress, message)
 
             # 1. 获取媒体文件信息
-            update_progress(5, "正在读取视频文件信息...")
+            update_progress(5, "正在读取文件信息...")
             task_info.status = TaskStatus.EXTRACTING
 
             media_file_info = audio_extractor.get_media_info(file_path)
@@ -222,9 +222,9 @@ class VideoTranscriptionEngine:
         progress_callback: Optional[Callable[[str, float, str], None]] = None
     ) -> TranscriptionResult:
         """
-        处理视频URL (下载后转录)
+        处理媒体URL (下载后转录)
 
-        注意: 此功能需要额外的视频下载库支持。
+        注意: 此功能需要额外的下载库支持。
         当前版本返回错误提示，请使用 process_video_file() 处理本地文件。
 
         Args:
@@ -238,12 +238,12 @@ class VideoTranscriptionEngine:
         Raises:
             NotImplementedError: 当URL下载功能未启用时
         """
-        logger.warning(f"尝试处理视频URL: {url}")
+        logger.warning(f"尝试处理媒体URL: {url}")
 
         raise NotImplementedError(
-            "URL视频下载功能未启用。当前版本仅支持本地视频文件处理。\n"
+            "URL下载功能未启用。当前版本仅支持本地文件处理。\n"
             "请使用以下方法之一:\n"
-            "1. 通过 Web 界面上传视频文件\n"
+            "1. 通过 Web 界面上传音视频文件\n"
             "2. 使用 POST /api/v1/transcribe/file API 上传文件\n"
             "3. 使用命令行: python main.py transcribe <本地文件路径>\n\n"
             "如需URL下载功能，请:\n"
@@ -259,10 +259,10 @@ class VideoTranscriptionEngine:
         progress_callback: Optional[Callable[[str, Dict[str, Any]], None]] = None
     ) -> BatchTaskInfo:
         """
-        批量处理视频文件
+        批量处理媒体文件
 
         Args:
-            file_paths: 视频文件路径列表
+            file_paths: 媒体文件路径列表
             options: 处理选项
             max_concurrent: 最大并发数
             progress_callback: 进度回调 (batch_id, status_info)
@@ -273,7 +273,7 @@ class VideoTranscriptionEngine:
         batch_id = self._generate_batch_id()
 
         try:
-            logger.info(f"开始批量处理 {len(file_paths)} 个视频文件")
+            logger.info(f"开始批量处理 {len(file_paths)} 个媒体文件")
 
             # 创建批量任务记录
             batch_info = BatchTaskInfo(
@@ -445,10 +445,10 @@ async def transcribe_video_file(
     progress_callback: Optional[Callable[[str, float, str], None]] = None
 ) -> TranscriptionResult:
     """
-    转录视频文件的便捷函数
+    转录媒体文件的便捷函数
 
     Args:
-        file_path: 视频文件路径
+        file_path: 媒体文件路径
         model: 语音识别模型
         language: 语言
         with_timestamps: 是否包含时间戳

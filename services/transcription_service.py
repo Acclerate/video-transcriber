@@ -1,6 +1,6 @@
 """
 转录服务
-封装视频转录的业务逻辑
+封装媒体转录的业务逻辑
 """
 
 import asyncio
@@ -8,7 +8,7 @@ import uuid
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional, Dict, Any, Callable
+from typing import List, Optional, Dict, Any, Callable, Set
 
 from loguru import logger
 
@@ -49,6 +49,8 @@ class TranscriptionService:
         )
         self.file_service = FileService(self.config)
         self.task_service = TaskService(self.config)
+        self.running_tasks: Dict[str, asyncio.Task] = {}
+        self.task_temp_files: Dict[str, Set[str]] = {}
 
         logger.info("转录服务初始化完成")
 
@@ -97,8 +99,11 @@ class TranscriptionService:
         )
         self.task_service.add_task(task_id, task_info)
 
+        audio_path: Optional[str] = None
+
         try:
             logger.info(f"开始处理媒体文件: {file_path}")
+            self._register_running_task(task_id)
 
             # 验证文件
             await self._validate_file(file_path, task_id, progress_callback)
@@ -111,14 +116,12 @@ class TranscriptionService:
             audio_path = await self._extract_audio(
                 file_path, task_id, progress_callback
             )
+            self._register_temp_file(task_id, audio_path)
 
             # 执行转录
             result = await self._transcribe(
                 audio_path, options, task_id, progress_callback
             )
-
-            # 清理临时文件
-            await self._cleanup_temp_files(audio_path)
 
             # 更新任务状态
             task_info.status = TaskStatus.COMPLETED
@@ -131,6 +134,17 @@ class TranscriptionService:
 
             logger.info(f"媒体处理完成: {file_path}")
             return result
+
+        except asyncio.CancelledError:
+            logger.warning(f"媒体处理被终止: {file_path}")
+            task_info.status = TaskStatus.CANCELLED
+            task_info.error_message = "任务已终止"
+            task_info.completed_at = datetime.now()
+
+            if progress_callback:
+                progress_callback(task_id, task_info.progress, "任务已终止")
+
+            raise
 
         except asyncio.TimeoutError:
             # 超时处理
@@ -155,6 +169,11 @@ class TranscriptionService:
                 progress_callback(task_id, 0, f"处理失败: {str(e)}")
 
             raise Exception(f"媒体处理失败: {str(e)}")
+
+        finally:
+            await self._cleanup_task_temp_files(task_id)
+            self.running_tasks.pop(task_id, None)
+            self.task_temp_files.pop(task_id, None)
 
     async def transcribe_batch(
         self,
@@ -361,6 +380,25 @@ class TranscriptionService:
         except Exception as e:
             logger.warning(f"清理临时文件失败: {e}")
 
+    async def _cleanup_task_temp_files(self, task_id: str) -> None:
+        """清理任务关联的临时文件。"""
+        temp_files = self.task_temp_files.get(task_id, set())
+        for file_path in list(temp_files):
+            await self._cleanup_temp_files(file_path)
+
+    def _register_running_task(self, task_id: str) -> None:
+        """记录当前协程任务，便于外部取消。"""
+        current_task = asyncio.current_task()
+        if current_task:
+            self.running_tasks[task_id] = current_task
+        self.task_temp_files.setdefault(task_id, set())
+
+    def _register_temp_file(self, task_id: str, file_path: str) -> None:
+        """记录任务中产生的临时文件。"""
+        if not file_path:
+            return
+        self.task_temp_files.setdefault(task_id, set()).add(file_path)
+
     def _update_batch_progress(
         self,
         batch_id: str,
@@ -398,6 +436,32 @@ class TranscriptionService:
     def get_statistics(self) -> Dict[str, Any]:
         """获取统计信息"""
         return self.task_service.get_statistics()
+
+    async def cancel_task(self, task_id: str) -> Dict[str, Any]:
+        """取消正在运行的任务。"""
+        task_info = self.task_service.get_task(task_id)
+        if not task_info:
+            return {"success": False, "reason": "not_found", "message": "任务不存在"}
+
+        if task_info.status in [TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED]:
+            return {
+                "success": False,
+                "reason": "not_active",
+                "message": f"任务当前状态为 {task_info.status.value}，无法终止"
+            }
+
+        running_task = self.running_tasks.get(task_id)
+        if not running_task:
+            task_info.status = TaskStatus.CANCELLED
+            task_info.error_message = "任务已终止"
+            task_info.completed_at = datetime.now()
+            await self._cleanup_task_temp_files(task_id)
+            self.running_tasks.pop(task_id, None)
+            self.task_temp_files.pop(task_id, None)
+            return {"success": True, "reason": "marked_cancelled", "message": "任务已标记为终止"}
+
+        running_task.cancel()
+        return {"success": True, "reason": "cancel_requested", "message": "已发送终止请求"}
 
     async def cleanup_old_tasks(self, older_than_hours: int = 24) -> int:
         """清理旧任务"""

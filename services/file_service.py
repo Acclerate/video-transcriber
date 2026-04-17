@@ -52,7 +52,7 @@ class FileService:
 
     def is_supported_video_file(self, file_path: str) -> bool:
         """
-        检查是否为支持的视频文件
+        检查是否为支持的视频格式
 
         Args:
             file_path: 文件路径

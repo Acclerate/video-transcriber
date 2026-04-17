@@ -4,6 +4,7 @@
 """
 
 from collections import deque
+import asyncio
 from typing import Optional, List, Deque
 from pathlib import Path
 
@@ -49,15 +50,18 @@ def normalize_model_name(model: str) -> str:
 
 
 # 依赖注入
+_transcription_service = TranscriptionService()
+_file_service = FileService()
+
+
 def get_transcription_service() -> TranscriptionService:
     """获取转录服务实例"""
-    # 这里可以实现单例模式或使用依赖注入框架
-    return TranscriptionService()
+    return _transcription_service
 
 
 def get_file_service() -> FileService:
     """获取文件服务实例"""
-    return FileService()
+    return _file_service
 
 
 def tail_file_lines(file_path: Path, max_lines: int = 200) -> List[str]:
@@ -119,6 +123,9 @@ async def transcribe_file(
     Returns:
         TranscribeResponse: 转录结果
     """
+    file_path: Optional[str] = None
+    cleanup_scheduled = False
+
     try:
         # 保存上传的文件
         temp_dir = file_service.ensure_directory(settings.temp_path)
@@ -168,17 +175,38 @@ async def transcribe_file(
             except Exception as e:
                 logger.warning(f"清理文件失败 {file_to_remove}: {e}")
 
-        background_tasks.add_task(cleanup_file, file_path)
+        if background_tasks:
+            background_tasks.add_task(cleanup_file, file_path)
+            cleanup_scheduled = True
+        else:
+            cleanup_file(file_path)
+            cleanup_scheduled = True
 
         return TranscribeResponse(
             code=200,
             message="转录完成",
-            data={"transcription": result.model_dump()}
+            data={
+                "transcription": result.model_dump()
+            }
         )
+
+    except HTTPException:
+        raise
+
+    except asyncio.CancelledError:
+        logger.warning(f"文件转录任务被终止: {file.filename}")
+        raise HTTPException(status_code=499, detail="任务已终止")
 
     except Exception as e:
         logger.error(f"文件转录失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+    finally:
+        if file_path and not cleanup_scheduled:
+            try:
+                Path(file_path).unlink(missing_ok=True)
+            except Exception as e:
+                logger.warning(f"清理文件失败 {file_path}: {e}")
 
 
 @transcribe_router.post("/batch")
@@ -288,6 +316,8 @@ async def transcribe_batch(
 
         if background_tasks:
             background_tasks.add_task(cleanup_batch_files)
+        else:
+            cleanup_batch_files()
 
         return {
             "code": 200,
@@ -306,6 +336,29 @@ async def transcribe_batch(
         for saved_file in saved_files:
             Path(saved_file).unlink(missing_ok=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@transcribe_router.post("/task/{task_id}/cancel")
+async def cancel_task(
+    task_id: str,
+    service: TranscriptionService = Depends(get_transcription_service)
+):
+    """终止指定任务，并清理任务产生的临时文件。"""
+    result = await service.cancel_task(task_id)
+
+    if not result["success"]:
+        if result["reason"] == "not_found":
+            raise HTTPException(status_code=404, detail=result["message"])
+        raise HTTPException(status_code=409, detail=result["message"])
+
+    return {
+        "code": 200,
+        "message": result["message"],
+        "data": {
+            "task_id": task_id,
+            "status": "cancel_requested"
+        }
+    }
 
 
 # ============================================================
@@ -402,10 +455,10 @@ async def list_tasks(
                 result = task_dict["result"]
                 # 只保留关键信息
                 task_dict["result"] = {
-                    "text": result.text[:100] + "..." if len(result.text) > 100 else result.text,
-                    "language": result.language,
-                    "confidence": result.confidence,
-                    "processing_time": result.processing_time
+                    "text": result["text"][:100] + "..." if len(result["text"]) > 100 else result["text"],
+                    "language": result.get("language"),
+                    "confidence": result.get("confidence"),
+                    "processing_time": result.get("processing_time")
                 }
             task_list.append(task_dict)
 

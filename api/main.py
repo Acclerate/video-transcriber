@@ -83,7 +83,7 @@ async def lifespan(app: FastAPI):
 # 创建FastAPI应用
 app = FastAPI(
     title=settings.APP_NAME,
-    description="视频文件转文本服务API",
+    description="音视频转文本服务API",
     version=settings.APP_VERSION,
     docs_url="/docs",
     redoc_url="/redoc",
@@ -153,7 +153,7 @@ async def root():
             </head>
             <body>
                 <h1>Video Transcriber API</h1>
-                <p>视频文件转文本服务API已启动</p>
+                <p>音视频转文本服务API已启动</p>
                 <ul>
                     <li><a href="/docs">API文档</a></li>
                     <li><a href="/redoc">ReDoc文档</a></li>

@@ -21,6 +21,8 @@ class VideoTranscriberUI {
             keyword: ''
         };
         this.currentLogLines = [];
+        this.currentAbortController = null;
+        this._isTranscribing = false;
 
         this.init();
     }
@@ -83,9 +85,13 @@ class VideoTranscriberUI {
             this.removeSelectedFile();
         });
 
-        // 转录按钮
+        // 转录按钮（转录时变为终止按钮）
         document.getElementById('transcribeBtn').addEventListener('click', () => {
-            this.handleSingleTranscribe();
+            if (this._isTranscribing) {
+                this.cancelCurrentTask();
+            } else {
+                this.handleSingleTranscribe();
+            }
         });
 
         // 首屏快捷转录按钮
@@ -131,6 +137,14 @@ class VideoTranscriberUI {
                 this.showToast('请上传视频或音频文件', 'warning');
             }
         });
+
+        // 终止任务按钮
+        const cancelTaskBtn = document.getElementById('cancelTaskBtn');
+        if (cancelTaskBtn) {
+            cancelTaskBtn.addEventListener('click', () => {
+                this.cancelCurrentTask();
+            });
+        }
 
         // 批量转录按钮
         document.getElementById('batchTranscribeBtn').addEventListener('click', () => {
@@ -628,7 +642,7 @@ class VideoTranscriberUI {
         const transcribeBtn = document.getElementById('transcribeBtn');
         const quickBtn = document.getElementById('transcribeQuickBtn');
 
-        if (transcribeBtn) {
+        if (transcribeBtn && !this._isTranscribing) {
             transcribeBtn.disabled = !enabled;
         }
 
@@ -745,16 +759,20 @@ class VideoTranscriberUI {
 
     async handleSingleTranscribe() {
         if (!this.selectedFile) {
-            this.showToast('请先选择视频文件', 'warning');
+            this.showToast('请先选择媒体文件', 'warning');
             return;
         }
 
         const btn = document.getElementById('transcribeBtn');
         const quickBtn = document.getElementById('transcribeQuickBtn');
 
-        // 禁用表单
+        // 切换为终止按钮
         this.toggleForm(false);
-        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>处理中...';
+        this._isTranscribing = true;
+        btn.disabled = false;
+        btn.classList.remove('btn-primary', 'cta-btn');
+        btn.classList.add('btn-cancel-cta');
+        btn.innerHTML = '<i class="bi bi-stop-circle me-2"></i>终止任务';
         const badge = document.querySelector('.file-status-badge');
         if (badge) {
             badge.textContent = '处理中';
@@ -767,9 +785,16 @@ class VideoTranscriberUI {
         this.setLogIndicator('live', '任务执行中');
         this.fetchLogStream();
 
+        // 创建 AbortController 以支持终止
+        this.currentAbortController = new AbortController();
+
         try {
             // 显示进度卡片
             this.showProgressCard();
+
+            // 显示终止按钮
+            const cancelBtn = document.getElementById('cancelTaskBtn');
+            if (cancelBtn) cancelBtn.style.display = '';
 
             // 使用文件上传方式
             const formData = new FormData();
@@ -781,7 +806,8 @@ class VideoTranscriberUI {
 
             const response = await fetch(`${this.apiBaseUrl}/api/v1/transcribe/file`, {
                 method: 'POST',
-                body: formData
+                body: formData,
+                signal: this.currentAbortController.signal
             });
 
             const result = await response.json();
@@ -794,11 +820,31 @@ class VideoTranscriberUI {
             }
 
         } catch (error) {
-            console.error('转录请求失败:', error);
-            this.showError(error.message);
+            if (error.name === 'AbortError') {
+                console.log('转录请求已终止');
+                this.showToast('任务已终止', 'warning');
+                document.getElementById('progressCard').style.display = 'none';
+            } else {
+                console.error('转录请求失败:', error);
+                this.showError(error.message);
+            }
         } finally {
+            this.currentAbortController = null;
+            const cancelBtn = document.getElementById('cancelTaskBtn');
+            if (cancelBtn) {
+                cancelBtn.style.display = 'none';
+                cancelBtn.classList.remove('cancelling');
+                const label = cancelBtn.querySelector('.cancel-label');
+                if (label) label.textContent = '终止任务';
+            }
+            const progressCard = document.getElementById('progressCard');
+            if (progressCard) progressCard.classList.remove('cancelled');
+            this._isTranscribing = false;
             this.toggleForm(true);
+            btn.classList.remove('btn-cancel-cta');
+            btn.classList.add('btn-primary', 'cta-btn');
             btn.innerHTML = '<i class="bi bi-play-fill me-2"></i>开始转录';
+            btn.disabled = !this.selectedFile;
             const badge = document.querySelector('.file-status-badge');
             if (badge) {
                 badge.textContent = '已就绪';
@@ -813,9 +859,48 @@ class VideoTranscriberUI {
         }
     }
 
+    async cancelCurrentTask() {
+        const mainBtn = document.getElementById('transcribeBtn');
+        const cancelBtn = document.getElementById('cancelTaskBtn');
+
+        // Update main CTA button to show cancelling state
+        if (mainBtn) {
+            mainBtn.disabled = true;
+            mainBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>终止中...';
+        }
+
+        // Update progress strip cancel button
+        if (cancelBtn) {
+            cancelBtn.classList.add('cancelling');
+            const label = cancelBtn.querySelector('.cancel-label');
+            if (label) label.textContent = '终止中...';
+        }
+
+        // Mark progress strip as cancelled
+        const progressCard = document.getElementById('progressCard');
+        if (progressCard) progressCard.classList.add('cancelled');
+
+        // 1. Abort browser-side fetch
+        if (this.currentAbortController) {
+            this.currentAbortController.abort();
+        }
+
+        // 2. Notify backend to cancel server-side task
+        if (this.currentTaskId) {
+            try {
+                await fetch(`${this.apiBaseUrl}/api/v1/transcribe/task/${this.currentTaskId}/cancel`, {
+                    method: 'POST'
+                });
+            } catch (e) {
+                console.warn('终止后端任务请求失败:', e);
+            }
+            this.currentTaskId = null;
+        }
+    }
+
     async handleBatchTranscribe() {
         if (this.selectedBatchFiles.length === 0) {
-            this.showToast('请先选择视频文件', 'warning');
+            this.showToast('请先选择媒体文件', 'warning');
             return;
         }
 

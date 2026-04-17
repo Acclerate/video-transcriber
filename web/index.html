@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Video Transcriber - 视频转文本工具</title>
+    <title>Video Transcriber - 音视频转文本工具</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
@@ -15,33 +15,23 @@
     <!-- 导航栏 -->
     <nav class="navbar navbar-expand-lg main-nav">
         <div class="container">
-            <a class="navbar-brand" href="#">
+            <a class="navbar-brand" href="#" aria-label="Video Transcriber 首页">
                 <i class="bi bi-camera-video me-2"></i>
-                Video Transcriber
+                <span class="brand-mark">Video Transcriber</span>
+                <span class="brand-subtitle">AI Speech Workspace</span>
             </a>
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
                 <span class="navbar-toggler-icon"></span>
             </button>
             <div class="collapse navbar-collapse" id="navbarNav">
                 <div class="ms-auto d-flex align-items-center gap-3 nav-controls-wrap">
+                    <a class="btn btn-sm nav-utility-btn" href="/docs" target="_blank" rel="noopener noreferrer">
+                        <i class="bi bi-journal-code me-1"></i>API文档
+                    </a>
                     <button class="btn btn-sm theme-toggle-btn" id="themeToggleBtn" type="button" aria-label="切换主题">
                         <i class="bi bi-moon-stars me-1"></i>
                         <span id="themeToggleText">深色</span>
                     </button>
-                    <ul class="navbar-nav ms-auto">
-                        <li class="nav-item">
-                            <a class="nav-link" href="#single">单个转录</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link" href="#batch">批量转录</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link" href="#history">历史记录</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link" href="/docs" target="_blank">API文档</a>
-                        </li>
-                    </ul>
                 </div>
             </div>
         </div>
@@ -56,8 +46,8 @@
                     <div class="hero-grid">
                         <div>
                             <p class="hero-kicker mb-2">Video Transcriber</p>
-                            <h1 class="display-4 fw-bold mb-3">视频转文本工具</h1>
-                            <p class="lead mb-3">上传视频文件，基于 SenseVoice 的高精度语音识别，快速生成文本与字幕。</p>
+                            <h1 class="display-4 fw-bold mb-3">音视频转文本工具</h1>
+                            <p class="lead mb-3">上传音视频文件，基于 SenseVoice 的高精度语音识别，快速生成文本与字幕。</p>
                             <div class="d-flex flex-wrap gap-2 mt-2">
                                 <span class="badge hero-badge fs-6"><i class="bi bi-shield-lock me-2"></i>本地处理</span>
                                 <span class="badge hero-badge fs-6"><i class="bi bi-cpu me-2"></i>AI 驱动</span>
@@ -122,40 +112,46 @@
             <div class="tab-pane fade show active" id="single" role="tabpanel">
                 <div class="row mt-4">
                     <div class="col-lg-6">
-                        <div class="card">
-                            <div class="card-header">
-                                <h5 class="card-title mb-0">
-                                    <i class="bi bi-cloud-upload me-2"></i>上传媒体文件
-                                </h5>
-                            </div>
+                        <div class="card upload-card">
                             <div class="card-body">
+                                <div class="section-heading">
+                                    <i class="bi bi-cloud-upload"></i>
+                                    <h5 class="section-heading-text">上传媒体文件</h5>
+                                </div>
+
                                 <!-- 文件上传区域 -->
-                                <div class="mb-4">
-                                    <div class="upload-area" id="uploadArea">
-                                        <input type="file" class="form-control" id="videoFile" accept="video/*,audio/*,.m4a,.aac,.flac,.ogg,.wma" style="display: none;">
-                                        <div class="upload-placeholder text-center py-5">
-                                            <i class="bi bi-cloud-arrow-up display-4 text-muted"></i>
-                                            <p class="mt-3 mb-2">拖拽视频/音频文件到此处，或点击选择文件</p>
-                                            <small class="text-muted">支持 MP4, MKV, MOV, M4A, MP3, WAV, FLAC 等格式，最大1GB</small>
+                                <div class="upload-area" id="uploadArea">
+                                    <input type="file" class="form-control" id="videoFile" accept="video/*,audio/*,.m4a,.aac,.flac,.ogg,.wma" style="display: none;">
+                                    <div class="upload-placeholder text-center">
+                                        <div class="upload-icon-ring">
+                                            <i class="bi bi-cloud-arrow-up"></i>
                                         </div>
-                                        <div class="file-info" id="fileInfo" style="display: none;">
-                                            <div class="d-flex align-items-center">
-                                                <i class="bi bi-file-earmark-play fs-4 me-3"></i>
-                                                <div class="flex-grow-1">
-                                                    <div class="fw-bold" id="fileName"></div>
-                                                    <small class="text-muted" id="fileSize"></small>
-                                                </div>
-                                                <button type="button" class="btn btn-sm btn-outline-danger" id="removeFileBtn">
-                                                    <i class="bi bi-x-lg"></i>
-                                                </button>
+                                        <p class="upload-main-text">拖拽文件到此处，或点击选择</p>
+                                        <small class="upload-hint">MP4, MKV, MOV, M4A, MP3, WAV, FLAC 等 / 最大 1GB</small>
+                                    </div>
+                                    <div class="file-info" id="fileInfo" style="display: none;">
+                                        <div class="d-flex align-items-center">
+                                            <div class="file-info-icon">
+                                                <i class="bi bi-file-earmark-play"></i>
                                             </div>
+                                            <div class="flex-grow-1">
+                                                <div class="fw-bold" id="fileName"></div>
+                                                <small class="text-muted" id="fileSize"></small>
+                                            </div>
+                                            <button type="button" class="btn btn-sm btn-outline-danger" id="removeFileBtn">
+                                                <i class="bi bi-x-lg"></i>
+                                            </button>
                                         </div>
                                     </div>
                                 </div>
 
-                                <div class="row">
-                                    <div class="col-md-6 mb-3">
-                                        <label for="model" class="form-label">模型选择</label>
+                                <div class="options-divider">
+                                    <span>转录选项</span>
+                                </div>
+
+                                <div class="options-grid">
+                                    <div class="option-item">
+                                        <label for="model" class="form-label">模型</label>
                                         <select class="form-select" id="model">
                                             <option value="tiny">Tiny (快速)</option>
                                             <option value="base">Base (一般)</option>
@@ -164,7 +160,7 @@
                                             <option value="large">Large (最佳)</option>
                                         </select>
                                     </div>
-                                    <div class="col-md-6 mb-3">
+                                    <div class="option-item">
                                         <label for="language" class="form-label">语言</label>
                                         <select class="form-select" id="language">
                                             <option value="auto" selected>自动检测</option>
@@ -174,11 +170,8 @@
                                             <option value="ko">韩文</option>
                                         </select>
                                     </div>
-                                </div>
-
-                                <div class="row">
-                                    <div class="col-md-6 mb-3">
-                                        <label for="outputFormat" class="form-label">输出格式</label>
+                                    <div class="option-item">
+                                        <label for="outputFormat" class="form-label">格式</label>
                                         <select class="form-select" id="outputFormat">
                                             <option value="txt" selected>纯文本</option>
                                             <option value="json">JSON</option>
@@ -186,7 +179,7 @@
                                             <option value="vtt">VTT字幕</option>
                                         </select>
                                     </div>
-                                    <div class="col-md-6 mb-3 d-flex align-items-end">
+                                    <div class="option-item option-item-check">
                                         <div class="form-check">
                                             <input class="form-check-input" type="checkbox" id="timestamps">
                                             <label class="form-check-label" for="timestamps">
@@ -196,7 +189,7 @@
                                     </div>
                                 </div>
 
-                                <button type="button" class="btn btn-primary btn-lg w-100" id="transcribeBtn" disabled>
+                                <button type="button" class="btn btn-primary btn-lg w-100 cta-btn" id="transcribeBtn" disabled>
                                     <i class="bi bi-play-fill me-2"></i>开始转录
                                 </button>
                             </div>
@@ -205,80 +198,79 @@
 
                     <div class="col-lg-6">
                         <!-- 进度显示 -->
-                        <div class="card mb-3" id="progressCard" style="display: none;">
-                            <div class="card-header">
-                                <h6 class="card-title mb-0">处理进度</h6>
-                            </div>
-                            <div class="card-body">
-                                <div class="progress mb-2">
-                                    <div class="progress-bar" id="progressBar" role="progressbar" style="width: 0%"></div>
+                        <div class="progress-strip" id="progressCard" style="display: none;">
+                            <div class="progress-strip-header">
+                                <div class="progress-strip-left">
+                                    <span class="progress-strip-indicator"></span>
+                                    <span class="progress-strip-title">处理进度</span>
                                 </div>
-                                <small class="text-muted" id="progressText">准备中...</small>
+                                <small class="progress-strip-text" id="progressText">准备中...</small>
+                                <button type="button" class="btn btn-sm btn-cancel-task" id="cancelTaskBtn" style="display: none;" title="终止当前转录任务">
+                                    <span class="cancel-spinner"></span>
+                                    <i class="bi bi-x-circle cancel-icon"></i>
+                                    <span class="cancel-label">终止任务</span>
+                                </button>
+                            </div>
+                            <div class="progress-strip-track">
+                                <div class="progress-strip-fill" id="progressBar" role="progressbar" style="width: 0%"></div>
                             </div>
                         </div>
 
                         <!-- 结果显示 -->
-                        <div class="card" id="resultCard" style="display: none;">
-                            <div class="card-header d-flex justify-content-between align-items-center">
-                                <h6 class="card-title mb-0">转录结果</h6>
-                                <div>
-                                    <button class="btn btn-sm btn-outline-primary" id="copyBtn">
-                                        <i class="bi bi-clipboard"></i> 复制
-                                    </button>
-                                    <button class="btn btn-sm btn-outline-success" id="downloadBtn">
-                                        <i class="bi bi-download"></i> 下载
-                                    </button>
-                                    <button class="btn btn-sm btn-outline-danger" id="clearResultBtn">
-                                        <i class="bi bi-trash"></i> 清空
-                                    </button>
-                                </div>
-                            </div>
+                        <div class="card result-card" id="resultCard" style="display: none;">
                             <div class="card-body">
+                                <div class="result-header">
+                                    <h6 class="section-heading-text mb-0">
+                                        <i class="bi bi-chat-square-text me-2"></i>转录结果
+                                    </h6>
+                                    <div class="result-actions">
+                                        <button class="btn btn-sm result-action-btn" id="copyBtn" title="复制">
+                                            <i class="bi bi-clipboard me-1"></i>复制
+                                        </button>
+                                        <button class="btn btn-sm result-action-btn success" id="downloadBtn" title="下载">
+                                            <i class="bi bi-download me-1"></i>下载
+                                        </button>
+                                        <button class="btn btn-sm result-action-btn danger" id="clearResultBtn" title="清空">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    </div>
+                                </div>
                                 <div id="resultContent" class="result-content"></div>
-                                <div id="resultStats" class="mt-3 small text-muted"></div>
+                                <div id="resultStats" class="mt-2 small text-muted"></div>
                             </div>
                         </div>
 
-                        <div class="card mt-3" id="logStreamCard">
-                            <div class="card-header d-flex justify-content-between align-items-center">
-                                <h6 class="card-title mb-0">
-                                    <i class="bi bi-terminal me-2"></i>后端转录日志
-                                </h6>
-                                <div class="d-flex align-items-center gap-2">
+                        <div class="log-panel" id="logStreamCard">
+                            <div class="log-panel-header">
+                                <div class="log-panel-title">
+                                    <i class="bi bi-terminal"></i>
+                                    <span>后端转录日志</span>
                                     <span class="status-dot" id="logStatusDot"></span>
-                                    <small class="text-muted" id="logStatusText">实时更新</small>
-                                    <button class="btn btn-sm btn-outline-primary" id="refreshLogsBtn" type="button" title="手动刷新">
-                                        <i class="bi bi-arrow-clockwise"></i>
-                                    </button>
+                                    <small id="logStatusText">实时更新</small>
                                 </div>
-                            </div>
-                            <div class="card-body p-0">
-                                <div class="log-toolbar">
-                                    <div class="log-toolbar-group">
-                                        <label for="logLevelFilter" class="form-label mb-0">级别</label>
-                                        <select id="logLevelFilter" class="form-select form-select-sm">
-                                            <option value="all" selected>全部</option>
-                                            <option value="debug">Debug</option>
-                                            <option value="info">Info</option>
-                                            <option value="warning">Warning</option>
-                                            <option value="error">Error</option>
-                                        </select>
-                                    </div>
-                                    <div class="log-toolbar-group log-search-group">
-                                        <label for="logKeywordInput" class="form-label mb-0">关键词</label>
-                                        <input type="text" class="form-control form-control-sm" id="logKeywordInput" placeholder="输入关键词后回车">
-                                    </div>
-                                    <div class="log-toolbar-group log-toolbar-actions">
-                                        <button class="btn btn-sm btn-outline-warning" id="pauseLogsBtn" type="button">
+                                <div class="log-panel-controls">
+                                    <select id="logLevelFilter" class="form-select form-select-sm" aria-label="日志级别">
+                                        <option value="all" selected>全部级别</option>
+                                        <option value="debug">Debug</option>
+                                        <option value="info">Info</option>
+                                        <option value="warning">Warning</option>
+                                        <option value="error">Error</option>
+                                    </select>
+                                    <input type="text" class="form-control form-control-sm" id="logKeywordInput" placeholder="搜索关键词..." aria-label="搜索日志">
+                                    <div class="log-panel-actions">
+                                        <button class="btn btn-sm btn-outline-warning log-action-btn" id="pauseLogsBtn" type="button" title="暂停/继续">
                                             <i class="bi bi-pause-circle me-1"></i>暂停
                                         </button>
-                                        <button class="btn btn-sm btn-outline-success" id="exportLogsBtn" type="button">
+                                        <button class="btn btn-sm btn-outline-secondary log-action-btn" id="exportLogsBtn" type="button" title="导出日志">
                                             <i class="bi bi-file-earmark-arrow-down me-1"></i>导出
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-secondary log-action-btn" id="refreshLogsBtn" type="button" title="刷新">
+                                            <i class="bi bi-arrow-clockwise"></i>
                                         </button>
                                     </div>
                                 </div>
-                                <div id="logStreamContent" class="log-stream-content">等待日志...</div>
                             </div>
+                            <div id="logStreamContent" class="log-stream-content">等待日志...</div>
                         </div>
                     </div>
                 </div>
