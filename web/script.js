@@ -21,8 +21,11 @@ class VideoTranscriberUI {
             keyword: ''
         };
         this.currentLogLines = [];
+        this.batchLogsAutoScroll = true;
         this.currentAbortController = null;
         this._isTranscribing = false;
+        this.activeTasksStorageKey = 'video_transcriber_active_tasks';
+        this.taskPollingIntervals = new Map();
 
         this.init();
     }
@@ -37,6 +40,11 @@ class VideoTranscriberUI {
         this.startStatusPolling();
         this.initLogStream();
         this.initWebSocket();
+        this.recoverActiveTasks();
+
+        window.addEventListener('beforeunload', () => {
+            for (const [, intervalId] of this.taskPollingIntervals) clearInterval(intervalId);
+        });
     }
 
     bindEvents() {
@@ -234,6 +242,54 @@ class VideoTranscriberUI {
             });
         }
 
+        // Batch log controls
+        const batchRefreshLogsBtn = document.getElementById('batchRefreshLogsBtn');
+        if (batchRefreshLogsBtn) {
+            batchRefreshLogsBtn.addEventListener('click', () => this.fetchLogStream());
+        }
+
+        const batchLogLevelFilter = document.getElementById('batchLogLevelFilter');
+        if (batchLogLevelFilter) {
+            batchLogLevelFilter.addEventListener('change', (event) => {
+                this.logFilters.level = event.target.value;
+                const singleFilter = document.getElementById('logLevelFilter');
+                if (singleFilter) singleFilter.value = event.target.value;
+                this.fetchLogStream();
+            });
+        }
+
+        const batchLogKeywordInput = document.getElementById('batchLogKeywordInput');
+        if (batchLogKeywordInput) {
+            batchLogKeywordInput.addEventListener('keydown', (event) => {
+                if (event.key === 'Enter') {
+                    this.logFilters.keyword = event.target.value.trim();
+                    const singleInput = document.getElementById('logKeywordInput');
+                    if (singleInput) singleInput.value = event.target.value;
+                    this.fetchLogStream();
+                }
+            });
+
+            batchLogKeywordInput.addEventListener('blur', (event) => {
+                const newKeyword = event.target.value.trim();
+                if (newKeyword !== this.logFilters.keyword) {
+                    this.logFilters.keyword = newKeyword;
+                    const singleInput = document.getElementById('logKeywordInput');
+                    if (singleInput) singleInput.value = event.target.value;
+                    this.fetchLogStream();
+                }
+            });
+        }
+
+        const batchPauseLogsBtn = document.getElementById('batchPauseLogsBtn');
+        if (batchPauseLogsBtn) {
+            batchPauseLogsBtn.addEventListener('click', () => this.toggleLogsPause());
+        }
+
+        const batchExportLogsBtn = document.getElementById('batchExportLogsBtn');
+        if (batchExportLogsBtn) {
+            batchExportLogsBtn.addEventListener('click', () => this.exportCurrentLogs());
+        }
+
         document.addEventListener('visibilitychange', () => {
             if (document.hidden) {
                 this.setLogIndicator('paused', '页面后台，已降低刷新频率');
@@ -366,7 +422,15 @@ class VideoTranscriberUI {
                 const infoData = await infoRes.value.json();
                 const modelName = infoData.models?.default || 'sensevoice-small';
                 modelStatus = `${modelName} / 就绪`;
-                gpuStatus = infoData.features?.gpu_support ? '可用' : '未启用';
+                const gpuAvailable = infoData.features?.gpu_support;
+                const gpuEnabled = infoData.features?.gpu_enabled;
+                if (gpuAvailable && gpuEnabled) {
+                    gpuStatus = '已启用';
+                } else if (gpuAvailable && !gpuEnabled) {
+                    gpuStatus = '可用 (未启用)';
+                } else {
+                    gpuStatus = '未检测到';
+                }
             }
 
             if (healthRes.status === 'fulfilled' && healthRes.value.ok) {
@@ -420,6 +484,15 @@ class VideoTranscriberUI {
             });
         }
 
+        const batchLogContainer = document.getElementById('batchLogStreamContent');
+        if (batchLogContainer) {
+            batchLogContainer.addEventListener('scroll', () => {
+                const threshold = 24;
+                const atBottom = batchLogContainer.scrollTop + batchLogContainer.clientHeight >= batchLogContainer.scrollHeight - threshold;
+                this.batchLogsAutoScroll = atBottom;
+            });
+        }
+
         this.fetchLogStream();
         this.startLogPolling();
     }
@@ -438,14 +511,18 @@ class VideoTranscriberUI {
 
     toggleLogsPause() {
         this.logsPaused = !this.logsPaused;
-        const pauseBtn = document.getElementById('pauseLogsBtn');
-        if (pauseBtn) {
-            pauseBtn.classList.toggle('btn-outline-warning', !this.logsPaused);
-            pauseBtn.classList.toggle('btn-outline-primary', this.logsPaused);
-            pauseBtn.innerHTML = this.logsPaused
-                ? '<i class="bi bi-play-circle me-1"></i>继续'
-                : '<i class="bi bi-pause-circle me-1"></i>暂停';
-        }
+
+        // Update both pause buttons
+        ['pauseLogsBtn', 'batchPauseLogsBtn'].forEach(id => {
+            const pauseBtn = document.getElementById(id);
+            if (pauseBtn) {
+                pauseBtn.classList.toggle('btn-outline-warning', !this.logsPaused);
+                pauseBtn.classList.toggle('btn-outline-primary', this.logsPaused);
+                pauseBtn.innerHTML = this.logsPaused
+                    ? '<i class="bi bi-play-circle me-1"></i>继续'
+                    : '<i class="bi bi-pause-circle me-1"></i>暂停';
+            }
+        });
 
         if (this.logsPaused) {
             this.setLogIndicator('paused', '已暂停实时刷新');
@@ -488,35 +565,43 @@ class VideoTranscriberUI {
     }
 
     renderLogError(message) {
-        const logContainer = document.getElementById('logStreamContent');
-        if (!logContainer) return;
-        logContainer.innerHTML = `
+        const errorHtml = `
             <span class="log-line error">[日志连接异常]</span>
             <span class="log-line warn">${this.escapeHtml(message)}</span>
             <span class="log-line info">你可以点击右上角刷新按钮重试。</span>
         `;
+        ['logStreamContent', 'batchLogStreamContent'].forEach(id => {
+            const container = document.getElementById(id);
+            if (container) container.innerHTML = errorHtml;
+        });
     }
 
     renderLogLines(lines) {
-        const logContainer = document.getElementById('logStreamContent');
-        if (!logContainer) return;
+        const containers = [
+            { el: document.getElementById('logStreamContent'), autoScroll: () => this.logsAutoScroll },
+            { el: document.getElementById('batchLogStreamContent'), autoScroll: () => this.batchLogsAutoScroll }
+        ];
 
         if (!lines || lines.length === 0) {
-            logContainer.textContent = '暂无转录日志，请先发起一次任务。';
+            containers.forEach(({ el }) => {
+                if (el) el.textContent = '暂无转录日志，请先发起一次任务。';
+            });
             return;
         }
 
-        logContainer.innerHTML = lines.map((line) => {
+        const html = lines.map((line) => {
             const levelClass = this.detectLogLevel(line);
-
             const lineContent = this.highlightKeyword(line, this.logFilters.keyword);
-
             return `<span class="log-line ${levelClass}">${lineContent}</span>`;
         }).join('');
 
-        if (this.logsAutoScroll) {
-            logContainer.scrollTop = logContainer.scrollHeight;
-        }
+        containers.forEach(({ el, autoScroll }) => {
+            if (!el) return;
+            el.innerHTML = html;
+            if (autoScroll()) {
+                el.scrollTop = el.scrollHeight;
+            }
+        });
     }
 
     detectLogLevel(line) {
@@ -577,18 +662,25 @@ class VideoTranscriberUI {
     }
 
     setLogIndicator(status, text) {
-        const dot = document.getElementById('logStatusDot');
-        const label = document.getElementById('logStatusText');
-        if (!dot || !label) return;
+        const indicators = [
+            { dot: 'logStatusDot', label: 'logStatusText' },
+            { dot: 'batchLogStatusDot', label: 'batchLogStatusText' }
+        ];
 
-        dot.classList.remove('paused', 'error');
-        if (status === 'paused') {
-            dot.classList.add('paused');
-        } else if (status === 'error') {
-            dot.classList.add('error');
-        }
+        indicators.forEach(({ dot, label }) => {
+            const dotEl = document.getElementById(dot);
+            const labelEl = document.getElementById(label);
+            if (!dotEl || !labelEl) return;
 
-        label.textContent = text;
+            dotEl.classList.remove('paused', 'error');
+            if (status === 'paused') {
+                dotEl.classList.add('paused');
+            } else if (status === 'error') {
+                dotEl.classList.add('error');
+            }
+
+            labelEl.textContent = text;
+        });
     }
 
     escapeHtml(value) {
@@ -766,7 +858,6 @@ class VideoTranscriberUI {
         const btn = document.getElementById('transcribeBtn');
         const quickBtn = document.getElementById('transcribeQuickBtn');
 
-        // 切换为终止按钮
         this.toggleForm(false);
         this._isTranscribing = true;
         btn.disabled = false;
@@ -774,29 +865,16 @@ class VideoTranscriberUI {
         btn.classList.add('btn-cancel-cta');
         btn.innerHTML = '<i class="bi bi-stop-circle me-2"></i>终止任务';
         const badge = document.querySelector('.file-status-badge');
-        if (badge) {
-            badge.textContent = '处理中';
-            badge.classList.add('processing');
-        }
-        if (quickBtn) {
-            quickBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>处理中...';
-            quickBtn.disabled = true;
-        }
+        if (badge) { badge.textContent = '处理中'; badge.classList.add('processing'); }
+        if (quickBtn) { quickBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>处理中...'; quickBtn.disabled = true; }
         this.setLogIndicator('live', '任务执行中');
         this.fetchLogStream();
 
-        // 创建 AbortController 以支持终止
-        this.currentAbortController = new AbortController();
-
         try {
-            // 显示进度卡片
             this.showProgressCard();
-
-            // 显示终止按钮
             const cancelBtn = document.getElementById('cancelTaskBtn');
             if (cancelBtn) cancelBtn.style.display = '';
 
-            // 使用文件上传方式
             const formData = new FormData();
             formData.append('file', this.selectedFile);
             formData.append('model', document.getElementById('model').value);
@@ -806,56 +884,28 @@ class VideoTranscriberUI {
 
             const response = await fetch(`${this.apiBaseUrl}/api/v1/transcribe/file`, {
                 method: 'POST',
-                body: formData,
-                signal: this.currentAbortController.signal
+                body: formData
             });
 
             const result = await response.json();
 
-            if (result.code === 200) {
-                this.displayResultFromAPI(result.data.transcription);
-                this.showToast('转录完成!', 'success');
+            if (result.code === 202 && result.data?.task_id) {
+                const taskId = result.data.task_id;
+                this.currentTaskId = taskId;
+                this.saveActiveTask(taskId, {
+                    fileName: this.selectedFile.name,
+                    format: document.getElementById('outputFormat').value,
+                    type: 'single'
+                });
+                this.startTaskPolling(taskId);
+                this.showToast('任务已提交', 'success');
             } else {
-                throw new Error(result.message);
+                throw new Error(result.message || '提交失败');
             }
-
         } catch (error) {
-            if (error.name === 'AbortError') {
-                console.log('转录请求已终止');
-                this.showToast('任务已终止', 'warning');
-                document.getElementById('progressCard').style.display = 'none';
-            } else {
-                console.error('转录请求失败:', error);
-                this.showError(error.message);
-            }
-        } finally {
-            this.currentAbortController = null;
-            const cancelBtn = document.getElementById('cancelTaskBtn');
-            if (cancelBtn) {
-                cancelBtn.style.display = 'none';
-                cancelBtn.classList.remove('cancelling');
-                const label = cancelBtn.querySelector('.cancel-label');
-                if (label) label.textContent = '终止任务';
-            }
-            const progressCard = document.getElementById('progressCard');
-            if (progressCard) progressCard.classList.remove('cancelled');
-            this._isTranscribing = false;
-            this.toggleForm(true);
-            btn.classList.remove('btn-cancel-cta');
-            btn.classList.add('btn-primary', 'cta-btn');
-            btn.innerHTML = '<i class="bi bi-play-fill me-2"></i>开始转录';
-            btn.disabled = !this.selectedFile;
-            const badge = document.querySelector('.file-status-badge');
-            if (badge) {
-                badge.textContent = '已就绪';
-                badge.classList.remove('processing');
-            }
-            if (quickBtn) {
-                quickBtn.innerHTML = '<i class="bi bi-play-circle-fill me-2"></i>立即转录';
-                quickBtn.disabled = !this.selectedFile;
-            }
-            this.fetchRealtimeStatus();
-            this.fetchLogStream();
+            console.error('转录提交失败:', error);
+            this.showError(error.message);
+            this.resetTranscribeUI();
         }
     }
 
@@ -863,39 +913,31 @@ class VideoTranscriberUI {
         const mainBtn = document.getElementById('transcribeBtn');
         const cancelBtn = document.getElementById('cancelTaskBtn');
 
-        // Update main CTA button to show cancelling state
         if (mainBtn) {
             mainBtn.disabled = true;
             mainBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>终止中...';
         }
-
-        // Update progress strip cancel button
         if (cancelBtn) {
             cancelBtn.classList.add('cancelling');
             const label = cancelBtn.querySelector('.cancel-label');
             if (label) label.textContent = '终止中...';
         }
-
-        // Mark progress strip as cancelled
         const progressCard = document.getElementById('progressCard');
         if (progressCard) progressCard.classList.add('cancelled');
 
-        // 1. Abort browser-side fetch
-        if (this.currentAbortController) {
-            this.currentAbortController.abort();
-        }
-
-        // 2. Notify backend to cancel server-side task
         if (this.currentTaskId) {
             try {
-                await fetch(`${this.apiBaseUrl}/api/v1/transcribe/task/${this.currentTaskId}/cancel`, {
-                    method: 'POST'
-                });
+                await fetch(`${this.apiBaseUrl}/api/v1/transcribe/task/${this.currentTaskId}/cancel`, { method: 'POST' });
             } catch (e) {
                 console.warn('终止后端任务请求失败:', e);
             }
+            this.stopTaskPolling(this.currentTaskId);
+            this.removeActiveTask(this.currentTaskId);
             this.currentTaskId = null;
         }
+
+        this.resetTranscribeUI();
+        this.showToast('任务已终止', 'warning');
     }
 
     async handleBatchTranscribe() {
@@ -908,7 +950,7 @@ class VideoTranscriberUI {
 
         try {
             btn.disabled = true;
-            btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>处理中...';
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>提交中...';
             this.setLogIndicator('live', '批量任务执行中');
             this.fetchLogStream();
 
@@ -927,13 +969,23 @@ class VideoTranscriberUI {
 
             const result = await response.json();
 
-            if (result.code === 200) {
+            if (result.code === 202 && result.data?.tasks) {
+                this.batchTasks.clear();
+                for (const t of result.data.tasks) {
+                    this.batchTasks.set(t.task_id, { file: t.file });
+                    this.saveActiveTask(t.task_id, {
+                        fileName: t.file,
+                        type: 'batch'
+                    });
+                }
                 this.showBatchProgress();
-                this.showToast('批量任务已启动', 'success');
+                for (const t of result.data.tasks) {
+                    this.startTaskPolling(t.task_id);
+                }
+                this.showToast(`已提交 ${result.data.total} 个转录任务`, 'success');
             } else {
-                throw new Error(result.message);
+                throw new Error(result.message || '提交失败');
             }
-
         } catch (error) {
             console.error('批量转录失败:', error);
             this.showToast(`批量转录失败: ${error.message}`, 'error');
@@ -941,7 +993,6 @@ class VideoTranscriberUI {
             btn.disabled = false;
             btn.innerHTML = '<i class="bi bi-play-fill me-2"></i>开始批量转录';
             this.fetchRealtimeStatus();
-            this.fetchLogStream();
         }
     }
 
@@ -967,7 +1018,7 @@ class VideoTranscriberUI {
         progressText.textContent = message;
     }
 
-    displayResultFromAPI(data) {
+    displayResultFromAPI(data, format, fileName) {
         const progressCard = document.getElementById('progressCard');
         const resultCard = document.getElementById('resultCard');
         const resultContent = document.getElementById('resultContent');
@@ -977,16 +1028,18 @@ class VideoTranscriberUI {
         progressCard.style.display = 'none';
         resultCard.style.display = 'block';
 
-        // 格式化结果内容
-        const format = document.getElementById('outputFormat').value;
+        // 格式化结果内容（优先使用传入的 format，否则从下拉框读取）
+        const fmt = format || document.getElementById('outputFormat').value;
+        this._lastResultFormat = fmt;
+        this._lastResultFileName = fileName || (this.selectedFile ? this.selectedFile.name : null);
         let content = '';
 
-        if (format === 'json') {
+        if (fmt === 'json') {
             content = JSON.stringify(data, null, 2);
             resultContent.className = 'result-content json';
-        } else if (format === 'srt' || format === 'vtt') {
-            content = this.formatSubtitles(data, format);
-            resultContent.className = `result-content ${format}`;
+        } else if (fmt === 'srt' || fmt === 'vtt') {
+            content = this.formatSubtitles(data, fmt);
+            resultContent.className = `result-content ${fmt}`;
         } else {
             content = data.text || '';
             resultContent.className = 'result-content';
@@ -1013,10 +1066,10 @@ class VideoTranscriberUI {
 
         // 保存到历史记录
         this.saveToHistory({
-            path: this.selectedFile ? this.selectedFile.name : '未知',
+            path: this._lastResultFileName || '未知',
             result: data,
             timestamp: new Date().toISOString(),
-            format: format
+            format: fmt
         });
     }
 
@@ -1034,14 +1087,18 @@ class VideoTranscriberUI {
         // 清空任务列表
         taskList.innerHTML = '';
 
-        // 创建任务项
-        this.selectedBatchFiles.forEach((file, index) => {
+        // 从 batchTasks 恢复（刷新后 selectedBatchFiles 为空）
+        const items = this.batchTasks.size > 0
+            ? Array.from(this.batchTasks.values()).map(t => t.file || '未知')
+            : this.selectedBatchFiles.map(f => f.name);
+
+        items.forEach((name, index) => {
             const taskItem = document.createElement('div');
             taskItem.className = 'batch-task-item';
             taskItem.innerHTML = `
                 <div class="d-flex justify-content-between align-items-center">
                     <div class="flex-grow-1">
-                        <div class="task-path">${file.name}</div>
+                        <div class="task-path">${this.escapeHtml(name)}</div>
                         <div class="task-status pending" id="task-status-${index}">等待中</div>
                     </div>
                     <div class="task-progress">
@@ -1109,26 +1166,21 @@ class VideoTranscriberUI {
     downloadResult() {
         const resultContent = document.getElementById('resultContent');
         const text = resultContent.textContent;
-        const format = document.getElementById('outputFormat').value;
+        const fmt = this._lastResultFormat || document.getElementById('outputFormat').value;
 
-        // 使用上传文件名作为下载文件名
+        // 使用保存的文件名（刷新恢复后 selectedFile 为 null）
         let fileName = 'transcription';
-        console.log('下载调试 - selectedFile:', this.selectedFile);
-        if (this.selectedFile && this.selectedFile.name) {
-            // 去掉原始文件扩展名
-            const nameWithoutExt = this.selectedFile.name.replace(/\.[^/.]+$/, '');
-            fileName = nameWithoutExt;
-            console.log('下载调试 - 使用文件名:', fileName);
+        const sourceName = this._lastResultFileName || (this.selectedFile ? this.selectedFile.name : null);
+        if (sourceName) {
+            fileName = sourceName.replace(/\.[^/.]+$/, '');
         }
-
-        console.log('下载调试 - 最终文件名:', `${fileName}.${format}`);
 
         const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
         const url = URL.createObjectURL(blob);
 
         const a = document.createElement('a');
         a.href = url;
-        a.download = `${fileName}.${format}`;
+        a.download = `${fileName}.${fmt}`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
@@ -1176,6 +1228,234 @@ class VideoTranscriberUI {
 
         // 隐藏进度卡片
         document.getElementById('progressCard').style.display = 'none';
+    }
+
+    // ========== 异步任务：localStorage 辅助 ==========
+
+    saveActiveTask(taskId, meta) {
+        const tasks = this.loadActiveTasks();
+        tasks[taskId] = { ...meta, savedAt: Date.now() };
+        localStorage.setItem(this.activeTasksStorageKey, JSON.stringify(tasks));
+    }
+
+    loadActiveTasks() {
+        try { return JSON.parse(localStorage.getItem(this.activeTasksStorageKey) || '{}'); }
+        catch { return {}; }
+    }
+
+    removeActiveTask(taskId) {
+        const tasks = this.loadActiveTasks();
+        delete tasks[taskId];
+        localStorage.setItem(this.activeTasksStorageKey, JSON.stringify(tasks));
+    }
+
+    // ========== 异步任务：轮询 ==========
+
+    startTaskPolling(taskId) {
+        this.pollTaskStatus(taskId);
+        if (this.taskPollingIntervals.has(taskId)) clearInterval(this.taskPollingIntervals.get(taskId));
+        const id = setInterval(() => this.pollTaskStatus(taskId), 2000);
+        this.taskPollingIntervals.set(taskId, id);
+    }
+
+    stopTaskPolling(taskId) {
+        if (this.taskPollingIntervals.has(taskId)) {
+            clearInterval(this.taskPollingIntervals.get(taskId));
+            this.taskPollingIntervals.delete(taskId);
+        }
+    }
+
+    getStatusMessage(status) {
+        const map = {
+            pending: '排队中...',
+            extracting: '正在提取音频...',
+            transcribing: '正在转录...',
+            completed: '转录完成',
+            failed: '转录失败',
+            cancelled: '任务已终止'
+        };
+        return map[status] || status;
+    }
+
+    async pollTaskStatus(taskId) {
+        try {
+            const res = await fetch(`${this.apiBaseUrl}/api/v1/transcribe/task/${taskId}`);
+            if (!res.ok) {
+                if (res.status === 404) { this.stopTaskPolling(taskId); this.removeActiveTask(taskId); }
+                return;
+            }
+            const json = await res.json();
+            const task = json.data;
+            if (!task) return;
+
+            const meta = this.loadActiveTasks()[taskId] || {};
+
+            // 单文件任务：更新进度条
+            if (meta.type === 'single' && this.currentTaskId === taskId) {
+                this.updateProgress({ progress: task.progress || 0, message: this.getStatusMessage(task.status) });
+            }
+
+            // 批量任务：更新子任务状态
+            if (meta.type === 'batch') {
+                this.updateBatchTaskItem(taskId, task);
+            }
+
+            // 终态处理
+            if (['completed', 'failed', 'cancelled'].includes(task.status)) {
+                this.stopTaskPolling(taskId);
+
+                if (task.status === 'completed' && task.result) {
+                    if (meta.type === 'single') {
+                        this.displayResultFromAPI(task.result, meta.format, meta.fileName);
+                        this.showToast('转录完成!', 'success');
+                        this.resetTranscribeUI();
+                    } else {
+                        // 批量任务不调用 displayResultFromAPI，需单独存历史
+                        this.saveToHistory({
+                            path: meta.fileName || '未知',
+                            result: task.result,
+                            timestamp: new Date().toISOString(),
+                            format: meta.format || 'txt'
+                        });
+                    }
+                } else if (task.status === 'failed') {
+                    if (meta.type === 'single') {
+                        this.showError(task.error_message || '转录失败');
+                        this.resetTranscribeUI();
+                    } else {
+                        this.showToast(`${meta.fileName || '任务'} 失败: ${task.error_message || ''}`, 'error');
+                    }
+                } else if (task.status === 'cancelled') {
+                    if (meta.type === 'single') this.resetTranscribeUI();
+                }
+
+                this.removeActiveTask(taskId);
+                this.fetchRealtimeStatus();
+                this.fetchLogStream();
+            }
+        } catch (e) {
+            console.warn('轮询任务状态失败:', e);
+        }
+    }
+
+    updateBatchTaskItem(taskId, task) {
+        let idx = -1;
+        let i = 0;
+        for (const [tid] of this.batchTasks) {
+            if (tid === taskId) { idx = i; break; }
+            i++;
+        }
+        if (idx < 0) return;
+
+        const statusEl = document.getElementById(`task-status-${idx}`);
+        const progressEl = document.getElementById(`task-progress-${idx}`);
+        if (statusEl) {
+            statusEl.textContent = this.getStatusMessage(task.status);
+            statusEl.className = `task-status ${task.status}`;
+        }
+        if (progressEl) {
+            progressEl.style.width = `${task.progress || 0}%`;
+        }
+    }
+
+    // ========== 异步任务：刷新恢复 ==========
+
+    async recoverActiveTasks() {
+        const tasks = this.loadActiveTasks();
+        const ids = Object.keys(tasks);
+        if (ids.length === 0) return;
+
+        for (const taskId of ids) {
+            const meta = tasks[taskId];
+            try {
+                const res = await fetch(`${this.apiBaseUrl}/api/v1/transcribe/task/${taskId}`);
+                if (!res.ok) {
+                    this.removeActiveTask(taskId);
+                    continue;
+                }
+                const json = await res.json();
+                const task = json.data;
+                if (!task) { this.removeActiveTask(taskId); continue; }
+
+                if (['completed', 'failed', 'cancelled'].includes(task.status)) {
+                    // 已完成的任务
+                    if (task.status === 'completed' && task.result) {
+                        this.showToast(`${meta.fileName || '任务'} 已完成`, 'success');
+                        if (meta.type === 'single') {
+                            this.displayResultFromAPI(task.result, meta.format, meta.fileName);
+                        } else {
+                            this.saveToHistory({
+                                path: meta.fileName || '未知',
+                                result: task.result,
+                                timestamp: new Date().toISOString(),
+                                format: meta.format || 'txt'
+                            });
+                        }
+                    }
+                    this.removeActiveTask(taskId);
+                } else {
+                    // 仍在运行，恢复 UI
+                    if (meta.type === 'single') {
+                        this.currentTaskId = taskId;
+                        this._isTranscribing = true;
+                        this.toggleForm(false);
+                        const btn = document.getElementById('transcribeBtn');
+                        btn.disabled = false;
+                        btn.classList.remove('btn-primary', 'cta-btn');
+                        btn.classList.add('btn-cancel-cta');
+                        btn.innerHTML = '<i class="bi bi-stop-circle me-2"></i>终止任务';
+                        this.showProgressCard();
+                        const cancelBtn = document.getElementById('cancelTaskBtn');
+                        if (cancelBtn) cancelBtn.style.display = '';
+                        const badge = document.querySelector('.file-status-badge');
+                        if (badge) { badge.textContent = '恢复中'; badge.classList.add('processing'); }
+                    }
+                    if (meta.type === 'batch') {
+                        this.batchTasks.set(taskId, { file: meta.fileName });
+                    }
+                    this.startTaskPolling(taskId);
+                }
+            } catch (e) {
+                console.warn('恢复任务失败:', e);
+            }
+        }
+
+        // 如果有仍在运行的批量任务，显示批量进度面板
+        if (this.batchTasks.size > 0) {
+            this.showBatchProgress();
+        }
+    }
+
+    // ========== 异步任务：UI 重置 ==========
+
+    resetTranscribeUI() {
+        const btn = document.getElementById('transcribeBtn');
+        const quickBtn = document.getElementById('transcribeQuickBtn');
+        const cancelBtn = document.getElementById('cancelTaskBtn');
+        const progressCard = document.getElementById('progressCard');
+
+        if (cancelBtn) {
+            cancelBtn.style.display = 'none';
+            cancelBtn.classList.remove('cancelling');
+            const label = cancelBtn.querySelector('.cancel-label');
+            if (label) label.textContent = '终止任务';
+        }
+        if (progressCard) progressCard.classList.remove('cancelled');
+        this._isTranscribing = false;
+        this.toggleForm(true);
+        if (btn) {
+            btn.classList.remove('btn-cancel-cta');
+            btn.classList.add('btn-primary', 'cta-btn');
+            btn.innerHTML = '<i class="bi bi-play-fill me-2"></i>开始转录';
+            btn.disabled = !this.selectedFile;
+        }
+        const badge = document.querySelector('.file-status-badge');
+        if (badge) { badge.textContent = '已就绪'; badge.classList.remove('processing'); }
+        if (quickBtn) {
+            quickBtn.innerHTML = '<i class="bi bi-play-circle-fill me-2"></i>立即转录';
+            quickBtn.disabled = !this.selectedFile;
+        }
+        this.currentAbortController = null;
     }
 
     showToast(message, type = 'info') {

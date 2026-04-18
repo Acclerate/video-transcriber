@@ -105,7 +105,8 @@ async def service_info():
         "environment": settings.ENVIRONMENT,
         "debug": settings.DEBUG,
         "features": {
-            "gpu_support": settings.ENABLE_GPU,
+            "gpu_support": _detect_gpu_available(),
+            "gpu_enabled": settings.ENABLE_GPU,
             "platform_download": settings.ENABLE_PLATFORM_DOWNLOAD,
             "batch_processing": True,
             "websocket": True,
@@ -124,3 +125,12 @@ async def service_info():
             "available": ["tiny", "base", "small", "medium", "large"],
         }
     }
+
+
+def _detect_gpu_available() -> bool:
+    """实际检测 GPU 硬件是否存在且可用（不受 ENABLE_GPU 配置影响）"""
+    try:
+        import torch
+        return torch.cuda.is_available()
+    except Exception:
+        return False

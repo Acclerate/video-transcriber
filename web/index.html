@@ -342,6 +342,39 @@
                                             </div>
                                             <div id="batchTaskList" class="batch-task-list"></div>
                                         </div>
+
+                                        <div class="log-panel" id="batchLogPanel">
+                                            <div class="log-panel-header">
+                                                <div class="log-panel-title">
+                                                    <i class="bi bi-terminal"></i>
+                                                    <span>批量转录日志</span>
+                                                    <span class="status-dot" id="batchLogStatusDot"></span>
+                                                    <small id="batchLogStatusText">实时更新</small>
+                                                </div>
+                                                <div class="log-panel-controls">
+                                                    <select id="batchLogLevelFilter" class="form-select form-select-sm" aria-label="日志级别">
+                                                        <option value="all" selected>全部级别</option>
+                                                        <option value="debug">Debug</option>
+                                                        <option value="info">Info</option>
+                                                        <option value="warning">Warning</option>
+                                                        <option value="error">Error</option>
+                                                    </select>
+                                                    <input type="text" class="form-control form-control-sm" id="batchLogKeywordInput" placeholder="搜索关键词..." aria-label="搜索日志">
+                                                    <div class="log-panel-actions">
+                                                        <button class="btn btn-sm btn-outline-warning log-action-btn" id="batchPauseLogsBtn" type="button" title="暂停/继续">
+                                                            <i class="bi bi-pause-circle me-1"></i>暂停
+                                                        </button>
+                                                        <button class="btn btn-sm btn-outline-secondary log-action-btn" id="batchExportLogsBtn" type="button" title="导出日志">
+                                                            <i class="bi bi-file-earmark-arrow-down me-1"></i>导出
+                                                        </button>
+                                                        <button class="btn btn-sm btn-outline-secondary log-action-btn" id="batchRefreshLogsBtn" type="button" title="刷新">
+                                                            <i class="bi bi-arrow-clockwise"></i>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div id="batchLogStreamContent" class="log-stream-content">等待日志...</div>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -406,6 +439,6 @@
 
     <!-- JavaScript -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="/static/script.js?v=6"></script>
+    <script src="/static/script.js?v=10"></script>
 </body>
 </html>

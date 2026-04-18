@@ -947,6 +947,77 @@ body {
     animation: none;
 }
 
+/* === Log Panel === */
+.log-panel {
+    border-radius: var(--radius-md);
+    border: 1px solid rgba(31, 42, 42, 0.08);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(255, 253, 250, 0.94));
+    box-shadow: var(--shadow-sm);
+    overflow: hidden;
+    margin-top: 1rem;
+}
+
+.log-panel-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.65rem 0.85rem;
+    border-bottom: 1px solid var(--line-soft);
+    background: linear-gradient(180deg, rgba(31, 122, 120, 0.08), rgba(31, 122, 120, 0.02));
+}
+
+.log-panel-title {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-weight: 700;
+    font-size: 0.88rem;
+    color: var(--brand-deep);
+}
+
+.log-panel-title i {
+    color: var(--brand);
+}
+
+.log-panel-title small {
+    color: var(--text-muted);
+    font-weight: 500;
+}
+
+.log-panel-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.log-panel-actions {
+    display: flex;
+    gap: 0.3rem;
+}
+
+.log-action-btn {
+    font-size: 0.76rem;
+    padding: 0.25rem 0.55rem;
+    border-radius: 0.5rem;
+}
+
+[data-theme="dark"] .log-panel {
+    border-color: rgba(109, 211, 205, 0.15);
+    background: linear-gradient(180deg, var(--bg-panel), var(--bg-muted));
+}
+
+[data-theme="dark"] .log-panel-header {
+    border-bottom-color: var(--line-soft);
+    background: linear-gradient(180deg, rgba(57, 168, 162, 0.16), rgba(57, 168, 162, 0.06));
+}
+
+[data-theme="dark"] .log-panel-title {
+    color: #bdf3ec;
+}
+
 .log-stream-content {
     min-height: 240px;
     max-height: 360px;
@@ -1298,12 +1369,14 @@ body {
 }
 
 .result-content::-webkit-scrollbar,
+.log-stream-content::-webkit-scrollbar,
 .batch-task-list::-webkit-scrollbar,
 .file-list::-webkit-scrollbar {
     width: 7px;
 }
 
 .result-content::-webkit-scrollbar-track,
+.log-stream-content::-webkit-scrollbar-track,
 .batch-task-list::-webkit-scrollbar-track,
 .file-list::-webkit-scrollbar-track {
     background: rgba(22, 94, 93, 0.08);
@@ -1311,6 +1384,7 @@ body {
 }
 
 .result-content::-webkit-scrollbar-thumb,
+.log-stream-content::-webkit-scrollbar-thumb,
 .batch-task-list::-webkit-scrollbar-thumb,
 .file-list::-webkit-scrollbar-thumb {
     background: rgba(22, 94, 93, 0.38);
@@ -1318,6 +1392,7 @@ body {
 }
 
 .result-content::-webkit-scrollbar-thumb:hover,
+.log-stream-content::-webkit-scrollbar-thumb:hover,
 .batch-task-list::-webkit-scrollbar-thumb:hover,
 .file-list::-webkit-scrollbar-thumb:hover {
     background: rgba(22, 94, 93, 0.56);

@@ -8,7 +8,7 @@ import asyncio
 from typing import Optional, List, Deque
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, BackgroundTasks, Request
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Request
 from fastapi.responses import JSONResponse
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -94,7 +94,7 @@ def detect_log_level(line: str) -> str:
 # 转录端点
 # ============================================================
 
-@transcribe_router.post("/file", response_model=TranscribeResponse)
+@transcribe_router.post("/file")
 @limiter.limit(f"{settings.RATE_LIMIT_PER_MINUTE}/minute")
 async def transcribe_file(
     request: Request,
@@ -103,29 +103,14 @@ async def transcribe_file(
     language: str = Form(default="auto"),
     format: str = Form(default="txt"),
     timestamps: bool = Form(default=False),
-    background_tasks: BackgroundTasks = None,
     service: TranscriptionService = Depends(get_transcription_service),
     file_service: FileService = Depends(get_file_service)
 ):
     """
-    转录上传的媒体文件（视频/音频）
+    转录上传的媒体文件（异步任务模式）
 
-    Args:
-        file: 上传的媒体文件
-        model: 语音识别模型 (默认: sensevoice-small)
-        language: 目标语言
-        format: 输出格式
-        timestamps: 是否包含时间戳
-        background_tasks: 后台任务
-        service: 转录服务
-        file_service: 文件服务
-
-    Returns:
-        TranscribeResponse: 转录结果
+    提交后立即返回 task_id，通过 GET /task/{task_id} 轮询进度和结果。
     """
-    file_path: Optional[str] = None
-    cleanup_scheduled = False
-
     try:
         # 保存上传的文件
         temp_dir = file_service.ensure_directory(settings.temp_path)
@@ -147,12 +132,10 @@ async def transcribe_file(
         )
 
         if not is_valid:
-            # 清理文件
             Path(file_path).unlink(missing_ok=True)
             raise HTTPException(status_code=400, detail=error_msg)
 
         # 准备处理选项
-        # 规范化模型名称 (支持旧的模型名称如 "small", "base" 等)
         normalized_model = normalize_model_name(model)
         options = ProcessOptions(
             model=TranscriptionModel(normalized_model),
@@ -163,50 +146,28 @@ async def transcribe_file(
             temperature=settings.DEFAULT_TEMPERATURE
         )
 
-        # 执行转录
-        result = await service.transcribe_file(file_path, options)
+        # 创建任务并后台执行
+        task_id = service.create_task_id()
+        service.register_task_temp_file(task_id, file_path)
+        asyncio.create_task(
+            service.transcribe_file(file_path, options, task_id=task_id)
+        )
 
-        # 清理临时文件 - 创建清理函数
-        def cleanup_file(file_to_remove: str):
-            """后台清理文件函数"""
-            try:
-                Path(file_to_remove).unlink(missing_ok=True)
-                logger.debug(f"已清理临时文件: {file_to_remove}")
-            except Exception as e:
-                logger.warning(f"清理文件失败 {file_to_remove}: {e}")
-
-        if background_tasks:
-            background_tasks.add_task(cleanup_file, file_path)
-            cleanup_scheduled = True
-        else:
-            cleanup_file(file_path)
-            cleanup_scheduled = True
-
-        return TranscribeResponse(
-            code=200,
-            message="转录完成",
-            data={
-                "transcription": result.model_dump()
+        return JSONResponse(
+            status_code=202,
+            content={
+                "code": 202,
+                "message": "任务已提交",
+                "data": {"task_id": task_id}
             }
         )
 
     except HTTPException:
         raise
 
-    except asyncio.CancelledError:
-        logger.warning(f"文件转录任务被终止: {file.filename}")
-        raise HTTPException(status_code=499, detail="任务已终止")
-
     except Exception as e:
-        logger.error(f"文件转录失败: {e}")
+        logger.error(f"文件转录提交失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-
-    finally:
-        if file_path and not cleanup_scheduled:
-            try:
-                Path(file_path).unlink(missing_ok=True)
-            except Exception as e:
-                logger.warning(f"清理文件失败 {file_path}: {e}")
 
 
 @transcribe_router.post("/batch")
@@ -218,25 +179,13 @@ async def transcribe_batch(
     language: str = Form(default="auto"),
     format: str = Form(default="txt"),
     max_concurrent: int = Form(default=3),
-    background_tasks: BackgroundTasks = None,
     service: TranscriptionService = Depends(get_transcription_service),
     file_service: FileService = Depends(get_file_service)
 ):
     """
-    批量转录媒体文件
+    批量转录媒体文件（异步任务模式）
 
-    Args:
-        files: 上传的媒体文件列表 (最多20个)
-        model: 语音识别模型 (默认: sensevoice-small)
-        language: 目标语言
-        format: 输出格式
-        max_concurrent: 最大并发数 (1-10)
-        background_tasks: 后台任务
-        service: 转录服务
-        file_service: 文件服务
-
-    Returns:
-        dict: 批量处理结果
+    每个文件创建独立任务，提交后立即返回 task_id 列表。
     """
     temp_dir = file_service.ensure_directory(settings.temp_path)
     saved_files = []
@@ -258,7 +207,6 @@ async def transcribe_batch(
 
         # 保存上传的文件
         for file in files:
-            # 生成安全的文件名
             safe_filename = file_service.get_safe_filename(file.filename)
             file_path = file_service.get_unique_filepath(
                 str(temp_dir),
@@ -266,28 +214,24 @@ async def transcribe_batch(
                 Path(file.filename).suffix
             )
 
-            # 保存文件
             with open(file_path, "wb") as f:
                 content = await file.read()
                 f.write(content)
 
-            # 验证文件
             is_valid, error_msg = await file_service.validate_file(
                 file_path,
                 settings.MAX_FILE_SIZE
             )
 
             if not is_valid:
-                # 清理已保存的文件
                 for saved_file in saved_files:
                     Path(saved_file).unlink(missing_ok=True)
                 Path(file_path).unlink(missing_ok=True)
                 raise HTTPException(status_code=400, detail=f"{file.filename}: {error_msg}")
 
-            saved_files.append(file_path)
+            saved_files.append((file_path, file.filename))
 
         # 准备处理选项
-        # 规范化模型名称 (支持旧的模型名称如 "small", "base" 等)
         normalized_model = normalize_model_name(model)
         options = ProcessOptions(
             model=TranscriptionModel(normalized_model),
@@ -298,43 +242,43 @@ async def transcribe_batch(
             temperature=settings.DEFAULT_TEMPERATURE
         )
 
-        # 执行批量转录
-        result = await service.transcribe_batch(
-            file_paths=saved_files,
-            options=options,
-            max_concurrent=max_concurrent
+        # 为每个文件创建独立任务并后台执行
+        semaphore = asyncio.Semaphore(max_concurrent)
+
+        async def run_with_semaphore(fp, opts, tid):
+            async with semaphore:
+                await service.transcribe_file(fp, opts, task_id=tid)
+
+        task_list = []
+        for file_path, filename in saved_files:
+            task_id = service.create_task_id()
+            service.register_task_temp_file(task_id, file_path)
+            asyncio.create_task(run_with_semaphore(file_path, options, task_id))
+            task_list.append({"task_id": task_id, "file": filename})
+
+        return JSONResponse(
+            status_code=202,
+            content={
+                "code": 202,
+                "message": f"已提交 {len(task_list)} 个转录任务",
+                "data": {"tasks": task_list, "total": len(task_list)}
+            }
         )
 
-        # 后台清理文件
-        def cleanup_batch_files():
-            for file_path in saved_files:
-                try:
-                    Path(file_path).unlink(missing_ok=True)
-                    logger.debug(f"已清理临时文件: {file_path}")
-                except Exception as e:
-                    logger.warning(f"清理文件失败 {file_path}: {e}")
-
-        if background_tasks:
-            background_tasks.add_task(cleanup_batch_files)
-        else:
-            cleanup_batch_files()
-
-        return {
-            "code": 200,
-            "data": result,
-            "message": f"批量处理完成: {result.get('success', 0)}/{result.get('total', 0)} 成功"
-        }
-
     except HTTPException:
-        # 清理已保存的文件
         for saved_file in saved_files:
-            Path(saved_file).unlink(missing_ok=True)
+            if isinstance(saved_file, tuple):
+                Path(saved_file[0]).unlink(missing_ok=True)
+            else:
+                Path(saved_file).unlink(missing_ok=True)
         raise
     except Exception as e:
-        logger.error(f"批量转录失败: {e}")
-        # 清理已保存的文件
+        logger.error(f"批量转录提交失败: {e}")
         for saved_file in saved_files:
-            Path(saved_file).unlink(missing_ok=True)
+            if isinstance(saved_file, tuple):
+                Path(saved_file[0]).unlink(missing_ok=True)
+            else:
+                Path(saved_file).unlink(missing_ok=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 

@@ -59,7 +59,8 @@ class TranscriptionService:
         file_path: str,
         options: Optional[ProcessOptions] = None,
         progress_callback: Optional[Callable[[str, float, str], None]] = None,
-        timeout: Optional[int] = None
+        timeout: Optional[int] = None,
+        task_id: Optional[str] = None
     ) -> TranscriptionResult:
         """
         转录单个媒体文件
@@ -69,6 +70,7 @@ class TranscriptionService:
             options: 处理选项
             progress_callback: 进度回调函数 (task_id, progress, message)
             timeout: 自定义超时时间（秒）
+            task_id: 外部预生成的任务ID（由 create_task_id 生成）
 
         Returns:
             TranscriptionResult: 转录结果
@@ -84,20 +86,26 @@ class TranscriptionService:
                 temperature=self.config.DEFAULT_TEMPERATURE
             )
 
-        # 创建任务
-        task_id = self._generate_task_id()
-        task_info = TaskInfo(
-            task_id=task_id,
-            file_path=file_path,
-            status=TaskStatus.PENDING,
-            progress=0,
-            started_at=datetime.now(),
-            completed_at=None,
-            error_message=None,
-            media_info=None,
-            result=None
-        )
-        self.task_service.add_task(task_id, task_info)
+        # 创建或恢复任务
+        if task_id and self.task_service.get_task(task_id):
+            # 外部预注册的 task_id，更新已有 TaskInfo
+            task_info = self.task_service.get_task(task_id)
+            task_info.file_path = file_path
+            task_info.started_at = datetime.now()
+        else:
+            task_id = self._generate_task_id()
+            task_info = TaskInfo(
+                task_id=task_id,
+                file_path=file_path,
+                status=TaskStatus.PENDING,
+                progress=0,
+                started_at=datetime.now(),
+                completed_at=None,
+                error_message=None,
+                media_info=None,
+                result=None
+            )
+            self.task_service.add_task(task_id, task_info)
 
         audio_path: Optional[str] = None
 
@@ -113,21 +121,23 @@ class TranscriptionService:
             task_info.media_info = media_info
 
             # 提取音频
+            self.task_service.update_task_status(task_id, TaskStatus.EXTRACTING)
             audio_path = await self._extract_audio(
                 file_path, task_id, progress_callback
             )
             self._register_temp_file(task_id, audio_path)
 
             # 执行转录
+            self.task_service.update_task_status(task_id, TaskStatus.TRANSCRIBING)
             result = await self._transcribe(
                 audio_path, options, task_id, progress_callback
             )
 
             # 更新任务状态
-            task_info.status = TaskStatus.COMPLETED
             task_info.result = result
             task_info.completed_at = datetime.now()
             task_info.progress = 100
+            self.task_service.update_task_status(task_id, TaskStatus.COMPLETED, progress=100)
 
             if progress_callback:
                 progress_callback(task_id, 100, "处理完成")
@@ -137,9 +147,9 @@ class TranscriptionService:
 
         except asyncio.CancelledError:
             logger.warning(f"媒体处理被终止: {file_path}")
-            task_info.status = TaskStatus.CANCELLED
             task_info.error_message = "任务已终止"
             task_info.completed_at = datetime.now()
+            self.task_service.update_task_status(task_id, TaskStatus.CANCELLED, error_message="任务已终止")
 
             if progress_callback:
                 progress_callback(task_id, task_info.progress, "任务已终止")
@@ -150,20 +160,21 @@ class TranscriptionService:
             # 超时处理
             timeout_used = timeout or self.config.TASK_TIMEOUT
             logger.error(f"媒体处理超时: {file_path} (超时时间: {timeout_used}秒)")
-            task_info.status = TaskStatus.FAILED
-            task_info.error_message = f"处理超时 (超过 {timeout_used} 秒)"
+            err_msg = f"处理超时 (超过 {timeout_used} 秒)"
+            task_info.error_message = err_msg
             task_info.completed_at = datetime.now()
+            self.task_service.update_task_status(task_id, TaskStatus.FAILED, error_message=err_msg)
 
             if progress_callback:
-                progress_callback(task_id, 0, f"处理超时")
+                progress_callback(task_id, 0, "处理超时")
 
-            raise Exception(f"媒体处理超时 (超过 {timeout_used} 秒)")
+            raise Exception(err_msg)
 
         except Exception as e:
             logger.error(f"媒体处理失败: {e}")
-            task_info.status = TaskStatus.FAILED
             task_info.error_message = str(e)
             task_info.completed_at = datetime.now()
+            self.task_service.update_task_status(task_id, TaskStatus.FAILED, error_message=str(e))
 
             if progress_callback:
                 progress_callback(task_id, 0, f"处理失败: {str(e)}")
@@ -424,6 +435,30 @@ class TranscriptionService:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         random_suffix = uuid.uuid4().hex[:8]
         return f"batch_{timestamp}_{random_suffix}"
+
+    def create_task_id(self) -> str:
+        """生成 task_id 并预注册到 TaskService，用于异步提交场景。"""
+        task_id = self._generate_task_id()
+        task_info = TaskInfo(
+            task_id=task_id,
+            file_path="",
+            status=TaskStatus.PENDING,
+            progress=0,
+            started_at=None,
+            completed_at=None,
+            error_message=None,
+            media_info=None,
+            result=None
+        )
+        self.task_service.add_task(task_id, task_info)
+        self.task_temp_files.setdefault(task_id, set())
+        return task_id
+
+    def register_task_temp_file(self, task_id: str, file_path: str) -> None:
+        """预注册临时文件，转录完成后统一清理。"""
+        if not file_path:
+            return
+        self.task_temp_files.setdefault(task_id, set()).add(file_path)
 
     # ============================================================
     # 公共方法
