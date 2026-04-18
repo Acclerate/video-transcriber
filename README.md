@@ -24,7 +24,7 @@
 - 🇨🇳 **中文优化**: 默认中文转录，避免误识别为英语
 - ✨ **标点符号**: 自动添加标点符号，提高可读性
 
-![alt text](images\image.png)
+![alt text](images/image.png)
 
 ## 🚀 快速开始
 
