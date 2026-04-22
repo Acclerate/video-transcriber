@@ -20,7 +20,7 @@ def format_output(result: TranscriptionResult, format_type: OutputFormat = Outpu
     """
     try:
         if format_type == OutputFormat.TXT:
-            return result.text
+            return _format_txt(result)
         elif format_type == OutputFormat.SRT:
             return _format_srt(result)
         elif format_type == OutputFormat.VTT:
@@ -31,6 +31,13 @@ def format_output(result: TranscriptionResult, format_type: OutputFormat = Outpu
     except Exception as e:
         logger.error(f"输出格式化失败: {e}")
         return result.text  # 回退到纯文本
+
+
+def _format_txt(result: TranscriptionResult) -> str:
+    """格式化为纯文本，段落间双换行"""
+    if result.paragraphs:
+        return "\n\n".join(p.text for p in result.paragraphs if p.text.strip())
+    return result.text
 
 
 def _format_srt(result: TranscriptionResult) -> str:

@@ -77,6 +77,12 @@ class Settings(BaseSettings):
     CHUNK_OVERLAP_SECONDS: int = 1  # 块之间重叠时间（秒）
     MIN_DURATION_FOR_CHUNKING: int = 30  # 超过30秒即启用分块，避免 SenseVoice 截断
 
+    # 段落格式化配置
+    ENABLE_PARAGRAPH_FORMATTING: bool = True
+    PARAGRAPH_SILENCE_THRESHOLD: float = 1.5  # 静音间隔阈值（秒）
+    PARAGRAPH_MAX_LENGTH: int = 250  # 段落最大字数
+    PARAGRAPH_MIN_LENGTH: int = 30  # 段落最小字数
+
     # 语言验证：确保语言代码有效
     SUPPORTED_LANGUAGES: List[str] = [
         "zh",  # 中文

@@ -112,13 +112,13 @@
             <div class="tab-pane fade show active" id="single" role="tabpanel">
                 <div class="row mt-4">
                     <div class="col-lg-6">
-                        <div class="card upload-card">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5 class="card-title mb-0">
+                                    <i class="bi bi-play-circle me-2"></i>单个转录
+                                </h5>
+                            </div>
                             <div class="card-body">
-                                <div class="section-heading">
-                                    <i class="bi bi-cloud-upload"></i>
-                                    <h5 class="section-heading-text">上传媒体文件</h5>
-                                </div>
-
                                 <!-- 文件上传区域 -->
                                 <div class="upload-area" id="uploadArea">
                                     <input type="file" class="form-control" id="videoFile" accept="video/*,audio/*,.m4a,.aac,.flac,.ogg,.wma" style="display: none;">
@@ -240,8 +240,8 @@
                             </div>
                         </div>
 
-                        <div class="log-panel" id="logStreamCard">
-                            <div class="log-panel-header">
+                        <div class="card" id="logStreamCard">
+                            <div class="card-header">
                                 <div class="log-panel-title">
                                     <i class="bi bi-terminal"></i>
                                     <span>后端转录日志</span>
@@ -270,7 +270,9 @@
                                     </div>
                                 </div>
                             </div>
-                            <div id="logStreamContent" class="log-stream-content">等待日志...</div>
+                            <div class="card-body p-0">
+                                <div id="logStreamContent" class="log-stream-content">等待日志...</div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -343,8 +345,8 @@
                                             <div id="batchTaskList" class="batch-task-list"></div>
                                         </div>
 
-                                        <div class="log-panel" id="batchLogPanel">
-                                            <div class="log-panel-header">
+                                        <div class="card" id="batchLogPanel">
+                                            <div class="card-header">
                                                 <div class="log-panel-title">
                                                     <i class="bi bi-terminal"></i>
                                                     <span>批量转录日志</span>
@@ -373,7 +375,9 @@
                                                     </div>
                                                 </div>
                                             </div>
-                                            <div id="batchLogStreamContent" class="log-stream-content">等待日志...</div>
+                                            <div class="card-body p-0">
+                                                <div id="batchLogStreamContent" class="log-stream-content">等待日志...</div>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
@@ -392,9 +396,21 @@
                                 <h5 class="card-title mb-0">
                                     <i class="bi bi-clock-history me-2"></i>转录历史
                                 </h5>
-                                <button class="btn btn-outline-danger btn-sm" id="clearHistoryBtn">
-                                    <i class="bi bi-trash"></i> 清空历史
-                                </button>
+                                <div class="history-toolbar">
+                                    <button class="btn btn-sm history-toolbar-btn" id="formatParagraphsBtn" title="对选中的记录进行段落格式化">
+                                        <i class="bi bi-text-paragraph"></i>
+                                        <span>格式化段落</span>
+                                    </button>
+                                    <button class="btn btn-sm history-toolbar-btn" id="restoreHistoryBtn" title="恢复最近删除的记录">
+                                        <i class="bi bi-arrow-counterclockwise"></i>
+                                        <span>撤销删除</span>
+                                    </button>
+                                    <span class="history-toolbar-divider"></span>
+                                    <button class="btn btn-sm history-toolbar-btn history-toolbar-btn--danger" id="clearHistoryBtn" title="删除选中的记录">
+                                        <i class="bi bi-trash3"></i>
+                                        <span>删除选中</span>
+                                    </button>
+                                </div>
                             </div>
                             <div class="card-body">
                                 <div id="historyList">

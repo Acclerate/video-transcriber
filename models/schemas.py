@@ -126,6 +126,15 @@ class TranscriptionSegment(BaseModel):
         return v
 
 
+class Paragraph(BaseModel):
+    """段落"""
+    index: int = Field(..., description="段落序号")
+    text: str = Field(..., description="段落文本")
+    start_time: Optional[float] = Field(None, description="段落开始时间(秒)")
+    end_time: Optional[float] = Field(None, description="段落结束时间(秒)")
+    segments: List[TranscriptionSegment] = Field(default=[], description="段落内片段")
+
+
 class TranscriptionResult(BaseModel):
     """转录结果"""
     text: str = Field(..., description="完整转录文本")
@@ -134,6 +143,7 @@ class TranscriptionResult(BaseModel):
     segments: List[TranscriptionSegment] = Field(default=[], description="转录片段列表")
     processing_time: float = Field(..., description="处理时间(秒)")
     whisper_model: TranscriptionModel = Field(default=TranscriptionModel.SENSEVOICE_SMALL, description="使用的模型")
+    paragraphs: List[Paragraph] = Field(default=[], description="段落列表")
 
     model_config = {"protected_namespaces": ()}
 
@@ -383,7 +393,7 @@ __all__ = [
     "MediaFormat", "VideoFormat", "WSMessageType", "ErrorCode",
 
     # 基础模型
-    "MediaFileInfo", "VideoFileInfo", "TranscriptionSegment", "TranscriptionResult",
+    "MediaFileInfo", "VideoFileInfo", "TranscriptionSegment", "Paragraph", "TranscriptionResult",
 
     # 请求模型
     "ProcessOptions", "TranscribeRequest", "BatchTranscribeRequest",

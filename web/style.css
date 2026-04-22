@@ -480,11 +480,20 @@ body {
     background: linear-gradient(180deg, rgba(31, 122, 120, 0.12), rgba(31, 122, 120, 0.05));
     border-bottom: 1px solid rgba(31, 122, 120, 0.2);
     padding: 1rem 1.2rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem;
 }
 
 .card-title {
     color: var(--brand-deep);
     font-weight: 800;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.2rem;
+    margin: 0;
 }
 
 .form-label {
@@ -947,23 +956,23 @@ body {
     animation: none;
 }
 
-/* === Log Panel === */
-.log-panel {
+/* === Log Panel (card-based) === */
+#logStreamCard,
+#batchLogPanel {
     border-radius: var(--radius-md);
     border: 1px solid rgba(31, 42, 42, 0.08);
     background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(255, 253, 250, 0.94));
     box-shadow: var(--shadow-sm);
     overflow: hidden;
+}
+
+/* 日志面板上方有可见兄弟元素时保持间距 */
+#logStreamCard:not(:first-child) {
     margin-top: 1rem;
 }
 
-.log-panel-header {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.5rem;
-    padding: 0.65rem 0.85rem;
+#logStreamCard > .card-header,
+#batchLogPanel > .card-header {
     border-bottom: 1px solid var(--line-soft);
     background: linear-gradient(180deg, rgba(31, 122, 120, 0.08), rgba(31, 122, 120, 0.02));
 }
@@ -1004,12 +1013,14 @@ body {
     border-radius: 0.5rem;
 }
 
-[data-theme="dark"] .log-panel {
+[data-theme="dark"] #logStreamCard,
+[data-theme="dark"] #batchLogPanel {
     border-color: rgba(109, 211, 205, 0.15);
     background: linear-gradient(180deg, var(--bg-panel), var(--bg-muted));
 }
 
-[data-theme="dark"] .log-panel-header {
+[data-theme="dark"] #logStreamCard > .card-header,
+[data-theme="dark"] #batchLogPanel > .card-header {
     border-bottom-color: var(--line-soft);
     background: linear-gradient(180deg, rgba(57, 168, 162, 0.16), rgba(57, 168, 162, 0.06));
 }
@@ -1160,18 +1171,112 @@ body {
     color: var(--danger-color);
 }
 
+.history-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    background: rgba(255, 255, 255, 0.55);
+    border: 1px solid rgba(31, 122, 120, 0.15);
+    border-radius: var(--radius-sm);
+    padding: 3px;
+    backdrop-filter: blur(6px);
+}
+
+.history-toolbar-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 12px !important;
+    border-radius: 0.5rem !important;
+    border: none !important;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    background: transparent;
+    transition: all 0.18s ease;
+    white-space: nowrap;
+}
+
+.history-toolbar-btn:hover {
+    background: var(--brand-soft);
+    color: var(--brand-deep);
+    box-shadow: 0 1px 4px rgba(31, 122, 120, 0.1);
+}
+
+.history-toolbar-btn:active {
+    transform: scale(0.97);
+    background: rgba(31, 122, 120, 0.18);
+}
+
+.history-toolbar-btn--danger:hover {
+    background: rgba(181, 64, 60, 0.1);
+    color: var(--danger-color);
+    box-shadow: 0 1px 4px rgba(181, 64, 60, 0.08);
+}
+
+.history-toolbar-btn i {
+    font-size: 0.88rem;
+}
+
+.history-toolbar-divider {
+    width: 1px;
+    height: 16px;
+    background: rgba(31, 42, 42, 0.10);
+    margin: 0 3px;
+    flex-shrink: 0;
+}
+
+[data-theme="dark"] .history-toolbar {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: rgba(109, 211, 205, 0.15);
+}
+
+[data-theme="dark"] .history-toolbar-btn {
+    color: var(--text-secondary);
+}
+
+[data-theme="dark"] .history-toolbar-btn:hover {
+    background: rgba(57, 168, 162, 0.15);
+    color: var(--brand-deep);
+}
+
+[data-theme="dark"] .history-toolbar-btn--danger:hover {
+    background: rgba(181, 64, 60, 0.15);
+    color: #e87c78;
+}
+
 .history-item {
-    background: #fffefb;
-    border: 1px solid rgba(31, 42, 42, 0.15);
-    border-radius: 0.95rem;
-    padding: 1rem;
-    margin-bottom: 0.95rem;
-    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    background: var(--bg-panel);
+    border: 1px solid rgba(31, 42, 42, 0.10);
+    border-radius: var(--radius-md);
+    padding: 1rem 1.1rem;
+    margin-bottom: 0.8rem;
+    transition: border-color 0.22s ease, box-shadow 0.22s ease, background 0.22s ease;
 }
 
 .history-item:hover {
-    border-color: rgba(31, 122, 120, 0.45);
-    box-shadow: var(--shadow-sm);
+    border-color: rgba(31, 122, 120, 0.35);
+    box-shadow: 0 4px 16px rgba(23, 41, 41, 0.06);
+}
+
+.history-item.selected {
+    border-color: var(--brand);
+    background: linear-gradient(135deg, rgba(31, 122, 120, 0.05), rgba(31, 122, 120, 0.02));
+    box-shadow: 0 2px 12px rgba(31, 122, 120, 0.08);
+}
+
+.history-item.selected .history-checkbox {
+    accent-color: var(--brand);
+}
+
+[data-theme="dark"] .history-item {
+    background: var(--bg-panel);
+    border-color: rgba(212, 241, 237, 0.08);
+}
+
+[data-theme="dark"] .history-item.selected {
+    border-color: var(--brand);
+    background: rgba(57, 168, 162, 0.08);
 }
 
 .history-title {
@@ -1198,10 +1303,60 @@ body {
     max-height: none;
 }
 
+.history-content .paragraph-line {
+    text-indent: 2em;
+    margin-bottom: 0.5em;
+}
+
 .history-actions {
     margin-top: 0.75rem;
-    padding-top: 0.72rem;
-    border-top: 1px solid rgba(31, 42, 42, 0.1);
+    padding-top: 0.65rem;
+    border-top: 1px solid rgba(31, 42, 42, 0.08);
+    display: flex;
+    gap: 0.4rem;
+}
+
+.history-actions .btn {
+    font-size: 0.78rem;
+    font-weight: 600;
+    padding: 0.3rem 0.65rem;
+    border-radius: 0.45rem;
+    transition: all 0.18s ease;
+}
+
+.history-actions .btn-outline-primary:hover {
+    background: var(--brand-soft);
+    border-color: var(--brand);
+    color: var(--brand-deep);
+}
+
+.history-actions .btn-outline-success:hover {
+    background: rgba(45, 138, 87, 0.1);
+    border-color: var(--success-color);
+    color: var(--success-color);
+}
+
+.history-actions .btn-outline-danger:hover {
+    background: rgba(181, 64, 60, 0.08);
+    border-color: var(--danger-color);
+    color: var(--danger-color);
+}
+
+.history-checkbox {
+    width: 1.05rem;
+    height: 1.05rem;
+    cursor: pointer;
+    border-radius: 0.25rem;
+    border: 1.5px solid rgba(31, 42, 42, 0.25);
+    transition: all 0.15s ease;
+}
+
+.history-checkbox:hover {
+    border-color: var(--brand);
+}
+
+[data-theme="dark"] .history-checkbox {
+    border-color: rgba(212, 241, 237, 0.25);
 }
 
 .toast {

@@ -1,0 +1,87 @@
+# 生产环境覆盖配置
+# 使用: docker compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml up -d
+#
+# GPU 支持（NVIDIA）:
+#   确保已安装 nvidia-container-toolkit
+#   取消下方 deploy.reservations.devices 的注释
+
+services:
+  video-transcriber:
+    image: video-transcriber:latest
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: video-transcriber-prod
+    restart: always
+    environment:
+      - ENVIRONMENT=production
+      - ENABLE_GPU=true
+      - LOG_LEVEL=INFO
+      - WORKERS=2
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 4G
+        reservations:
+          cpus: "1.0"
+          memory: 2G
+          # NVIDIA GPU 支持 (需要 nvidia-container-toolkit)
+          # devices:
+          #   - driver: nvidia
+          #     count: 1
+          #     capabilities: [gpu]
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  # Nginx 反向代理
+  nginx:
+    image: nginx:alpine
+    container_name: video-transcriber-nginx
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      # SSL 证书 (取消注释以启用 HTTPS)
+      # - ./ssl:/etc/nginx/ssl:ro
+    depends_on:
+      video-transcriber:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:80/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      - transcriber-net
+
+  # Redis 任务缓存
+  redis:
+    image: redis:7-alpine
+    container_name: video-transcriber-redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    networks:
+      - transcriber-net
+
+networks:
+  transcriber-net:
+    driver: bridge
+
+volumes:
+  redis-data:
+    driver: local

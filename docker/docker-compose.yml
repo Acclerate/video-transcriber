@@ -1,48 +1,62 @@
 # Video Transcriber Docker Compose 配置
-
-version: '3.8'
+# 基础配置，可通过 overlay 文件扩展：
+#   开发: docker compose -f docker/docker-compose.yml -f docker/docker-compose.dev.yml up
+#   生产: docker compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml up -d
 
 services:
-  # 主应用服务
   video-transcriber:
     build:
       context: ..
       dockerfile: docker/Dockerfile
+      # GPU 构建 (需要 nvidia-container-toolkit):
+      target: gpu
+      # CPU 构建:
+      # target: cpu
     container_name: video-transcriber
     restart: unless-stopped
     ports:
       - "8665:8665"
     volumes:
-      # 挂载配置文件
       - ../logs:/app/logs
       - ../temp:/app/temp
       - ../models_cache:/app/models_cache
-      # 挂载环境配置
       - ../.env:/app/.env:ro
+    # GPU 设备透传
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    # CPU 模式: 删除上方 deploy 块，并将 build.target 改为 cpu
     environment:
-      # 基础配置
+      # 服务配置
       - HOST=0.0.0.0
       - PORT=8665
       - DEBUG=false
-      
-      # 日志配置
+      # 日志
       - LOG_LEVEL=INFO
-      - LOG_FILE=/app/logs/app.log
       - LOG_TO_CONSOLE=true
-      
-      # Whisper配置
-      - DEFAULT_MODEL=small
+      # SenseVoice 模型配置
+      - DEFAULT_MODEL=sensevoice-small
+      - DEFAULT_LANGUAGE=zh
       - ENABLE_GPU=true
+      # CPU 模式: - ENABLE_GPU=false
       - MODEL_CACHE_DIR=/app/models_cache
-      
+      # 音频分块
+      - ENABLE_AUDIO_CHUNKING=true
+      - CHUNK_DURATION_SECONDS=300
       # 文件配置
       - TEMP_DIR=/app/temp
-      - MAX_FILE_SIZE=100
+      - MAX_FILE_SIZE=1024
       - CLEANUP_AFTER=3600
-      
-      # API配置
+      # API 配置
       - CORS_ORIGINS=*
       - RATE_LIMIT_PER_MINUTE=60
+      # 任务配置
+      - MAX_CONCURRENT_TASKS=3
+      - TASK_TIMEOUT=3600
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8665/health"]
       interval: 30s
@@ -50,87 +64,8 @@ services:
       retries: 3
       start_period: 60s
     networks:
-      - transcriber-network
-
-  # Nginx反向代理 (可选)
-  nginx:
-    image: nginx:alpine
-    container_name: video-transcriber-nginx
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./ssl:/etc/nginx/ssl:ro
-    depends_on:
-      - video-transcriber
-    networks:
-      - transcriber-network
-
-  # Redis缓存 (可选)
-  redis:
-    image: redis:alpine
-    container_name: video-transcriber-redis
-    restart: unless-stopped
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis-data:/data
-    command: redis-server --appendonly yes
-    networks:
-      - transcriber-network
+      - transcriber-net
 
 networks:
-  transcriber-network:
+  transcriber-net:
     driver: bridge
-
-volumes:
-  redis-data:
-    driver: local
-
-# 开发环境覆盖配置
-# 使用: docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
-# ---
-# docker-compose.dev.yml
-# version: '3.8'
-
-# services:
-#   video-transcriber:
-#     build:
-#       target: development
-#     environment:
-#       - DEBUG=true
-#       - LOG_LEVEL=DEBUG
-#       - RELOAD=true
-#     volumes:
-#       # 开发时挂载源代码
-#       - ..:/app
-#     command: ["python", "-m", "uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8665", "--reload"]
-
-# 生产环境覆盖配置
-# 使用: docker-compose -f docker-compose.yml -f docker-compose.prod.yml up
-# ---
-# # docker-compose.prod.yml
-# version: '3.8'
-
-# services:
-#   video-transcriber:
-#     image: video-transcriber:latest
-#     deploy:
-#       replicas: 2
-#       resources:
-#         limits:
-#           cpus: '2.0'
-#           memory: 4G
-#         reservations:
-#           cpus: '1.0'
-#           memory: 2G
-#     environment:
-#       - DEBUG=false
-#       - LOG_LEVEL=INFO
-#       - ENABLE_GPU=true
-
-#   nginx:
-#     volumes:
-#       - ./nginx.prod.conf:/etc/nginx/nginx.conf:ro

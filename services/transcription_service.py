@@ -21,6 +21,7 @@ from core.engine import VideoTranscriptionEngine
 from core.downloader import AudioExtractor
 from .file_service import FileService
 from .task_service import TaskService
+from utils.paragraph_formatter import format_paragraphs
 
 
 class TranscriptionService:
@@ -382,6 +383,23 @@ class TranscriptionService:
         # 卸载模型释放内存
         await transcriber.unload_model()
 
+        # 段落格式化
+        if getattr(self.config, 'ENABLE_PARAGRAPH_FORMATTING', True):
+            try:
+                result.paragraphs = format_paragraphs(
+                    result,
+                    silence_threshold=getattr(self.config, 'PARAGRAPH_SILENCE_THRESHOLD', 1.5),
+                    max_length=getattr(self.config, 'PARAGRAPH_MAX_LENGTH', 250),
+                    min_length=getattr(self.config, 'PARAGRAPH_MIN_LENGTH', 30),
+                )
+                # 同步更新 text 字段，确保从历史记录复制时也是分段文本
+                if result.paragraphs:
+                    result.text = "\n\n".join(
+                        p.text for p in result.paragraphs if p.text.strip()
+                    )
+            except Exception as e:
+                logger.warning(f"段落格式化失败，跳过: {e}")
+
         return result
 
     async def _cleanup_temp_files(self, audio_path: str) -> None:
@@ -505,3 +523,38 @@ class TranscriptionService:
     async def cleanup_temp_files(self) -> int:
         """清理临时文件"""
         return self.audio_extractor.cleanup_files()
+
+    def reformat_paragraphs(self) -> int:
+        """
+        对所有已完成任务的转录结果重新应用段落格式化。
+        用于历史记录补充分段。
+
+        Returns:
+            int: 重新格式化的任务数量
+        """
+        if not getattr(self.config, 'ENABLE_PARAGRAPH_FORMATTING', True):
+            return 0
+
+        count = 0
+        for task_id, task_info in self.task_service.tasks.items():
+            if task_info.status != TaskStatus.COMPLETED or not task_info.result:
+                continue
+
+            result = task_info.result
+            try:
+                result.paragraphs = format_paragraphs(
+                    result,
+                    silence_threshold=getattr(self.config, 'PARAGRAPH_SILENCE_THRESHOLD', 1.5),
+                    max_length=getattr(self.config, 'PARAGRAPH_MAX_LENGTH', 250),
+                    min_length=getattr(self.config, 'PARAGRAPH_MIN_LENGTH', 30),
+                )
+                if result.paragraphs:
+                    result.text = "\n\n".join(
+                        p.text for p in result.paragraphs if p.text.strip()
+                    )
+                count += 1
+            except Exception as e:
+                logger.warning(f"任务 {task_id} 段落重新格式化失败: {e}")
+
+        logger.info(f"历史记录段落格式化完成: {count} 个任务")
+        return count

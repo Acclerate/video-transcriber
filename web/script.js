@@ -179,6 +179,16 @@ class VideoTranscriberUI {
             this.clearHistory();
         });
 
+        // 格式化段落按钮
+        document.getElementById('formatParagraphsBtn').addEventListener('click', () => {
+            this.formatAllHistoryParagraphs();
+        });
+
+        // 撤销删除按钮
+        document.getElementById('restoreHistoryBtn').addEventListener('click', () => {
+            this.restoreDeletedHistory();
+        });
+
         // 输出格式改变事件
         document.getElementById('outputFormat').addEventListener('change', (e) => {
             const timestamps = document.getElementById('timestamps');
@@ -1507,35 +1517,77 @@ class VideoTranscriberUI {
         }
 
         historyList.innerHTML = this.history.map((item, index) => `
-            <div class="history-item fade-in">
-                <div class="history-title">${this.extractTitle(item.path)}</div>
-                <div class="history-meta">
-                    <span class="me-3">
-                        <i class="bi bi-file-earmark-play me-1"></i>
-                        ${item.path}
-                    </span>
-                    <span class="me-3">
-                        <i class="bi bi-clock me-1"></i>
-                        ${this.formatTimestamp(item.timestamp)}
-                    </span>
-                    <span class="badge bg-secondary">${item.format}</span>
-                </div>
-                <div class="history-content" id="history-content-${index}">
-                    ${this.truncateText(item.result.text || '', 200)}
-                </div>
-                <div class="history-actions">
-                    <button class="btn btn-sm btn-outline-primary me-2" onclick="ui.expandHistory(${index})">
-                        <i class="bi bi-arrows-expand"></i> 展开
-                    </button>
-                    <button class="btn btn-sm btn-outline-success me-2" onclick="ui.copyHistoryItem(${index})">
-                        <i class="bi bi-clipboard"></i> 复制
-                    </button>
-                    <button class="btn btn-sm btn-outline-danger" onclick="ui.deleteHistoryItem(${index})">
-                        <i class="bi bi-trash"></i> 删除
-                    </button>
+            <div class="history-item fade-in" id="history-item-${index}">
+                <div class="d-flex align-items-start">
+                    <input type="checkbox" class="history-checkbox form-check-input mt-1 me-3 flex-shrink-0"
+                           id="history-check-${index}" onchange="ui.toggleHistorySelect(${index})">
+                    <div class="flex-grow-1">
+                        <div class="history-title">${this.extractTitle(item.path)}</div>
+                        <div class="history-meta">
+                            <span class="me-3">
+                                <i class="bi bi-file-earmark-play me-1"></i>
+                                ${item.path}
+                            </span>
+                            <span class="me-3">
+                                <i class="bi bi-clock me-1"></i>
+                                ${this.formatTimestamp(item.timestamp)}
+                            </span>
+                            <span class="badge bg-secondary">${item.format}</span>
+                        </div>
+                        <div class="history-content" id="history-content-${index}">
+                            ${this.renderTextPreview(item.result.text || '', 200)}
+                        </div>
+                        <div class="history-actions">
+                            <button class="btn btn-sm btn-outline-primary me-2" onclick="ui.expandHistory(${index})">
+                                <i class="bi bi-arrows-expand"></i> 展开
+                            </button>
+                            <button class="btn btn-sm btn-outline-success me-2" onclick="ui.copyHistoryItem(${index})">
+                                <i class="bi bi-clipboard"></i> 复制
+                            </button>
+                            <button class="btn btn-sm btn-outline-danger" onclick="ui.deleteHistoryItem(${index})">
+                                <i class="bi bi-trash"></i> 删除
+                            </button>
+                        </div>
+                    </div>
                 </div>
             </div>
         `).join('');
+    }
+
+    toggleHistorySelect(index) {
+        const item = document.getElementById(`history-item-${index}`);
+        const checkbox = document.getElementById(`history-check-${index}`);
+        if (checkbox.checked) {
+            item.classList.add('selected');
+        } else {
+            item.classList.remove('selected');
+        }
+    }
+
+    getSelectedHistoryIndices() {
+        const indices = [];
+        for (let i = 0; i < this.history.length; i++) {
+            const checkbox = document.getElementById(`history-check-${i}`);
+            if (checkbox && checkbox.checked) {
+                indices.push(i);
+            }
+        }
+        return indices;
+    }
+
+    renderTextPreview(text, maxLen) {
+        // 截断预览，段落分隔显示为空行
+        const preview = text.length > maxLen ? text.substring(0, maxLen) + '...' : text;
+        return this.renderParagraphs(preview);
+    }
+
+    renderParagraphs(text) {
+        if (!text) return '';
+        const paragraphs = text.split(/\n\n+/).filter(p => p.trim());
+        return paragraphs.map(p => {
+            const escaped = p.trim().replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            return `<div class="paragraph-line">${escaped}</div>`;
+        }).join('');
     }
 
     expandHistory(index) {
@@ -1544,10 +1596,10 @@ class VideoTranscriberUI {
 
         if (contentEl.classList.contains('expanded')) {
             contentEl.classList.remove('expanded');
-            contentEl.innerHTML = this.truncateText(item.result.text || '', 200);
+            contentEl.innerHTML = this.renderTextPreview(item.result.text || '', 200);
         } else {
             contentEl.classList.add('expanded');
-            contentEl.innerHTML = item.result.text || '';
+            contentEl.innerHTML = this.renderParagraphs(item.result.text || '');
         }
     }
 
@@ -1555,11 +1607,20 @@ class VideoTranscriberUI {
         const item = this.history[index];
         const text = item.result.text || '';
 
-        navigator.clipboard.writeText(text).then(() => {
+        // 复制时段首加两个全角空格缩进
+        const formatted = this.formatTextForCopy(text);
+
+        navigator.clipboard.writeText(formatted).then(() => {
             this.showToast('历史记录已复制', 'success');
         }).catch(() => {
             this.showToast('复制失败', 'error');
         });
+    }
+
+    formatTextForCopy(text) {
+        if (!text) return '';
+        const paragraphs = text.split(/\n\n+/);
+        return paragraphs.map(p => '\u3000\u3000' + p.trim()).join('\n\n');
     }
 
     deleteHistoryItem(index) {
@@ -1572,12 +1633,86 @@ class VideoTranscriberUI {
     }
 
     clearHistory() {
-        if (confirm('确定要清空所有历史记录吗？此操作不可恢复。')) {
-            this.history = [];
-            localStorage.removeItem('transcription_history');
-            this.displayHistory();
-            this.showToast('历史记录已清空', 'success');
+        const selectedIndices = this.getSelectedHistoryIndices();
+
+        if (selectedIndices.length === 0) {
+            this.showToast('请先勾选要删除的记录', 'warning');
+            return;
         }
+
+        if (!confirm(`确定要删除选中的 ${selectedIndices.length} 条记录吗？`)) return;
+
+        // 备份即将删除的记录，可恢复
+        const backup = JSON.parse(localStorage.getItem('transcription_history_backup') || '[]');
+        selectedIndices.sort((a, b) => b - a).forEach(i => {
+            backup.push(this.history[i]);
+            this.history.splice(i, 1);
+        });
+        localStorage.setItem('transcription_history_backup', JSON.stringify(backup));
+        localStorage.setItem('transcription_history', JSON.stringify(this.history));
+        this.displayHistory();
+        this.showToast(`已删除 ${selectedIndices.length} 条记录（已备份，可撤销）`, 'success');
+    }
+
+    restoreDeletedHistory() {
+        const backup = JSON.parse(localStorage.getItem('transcription_history_backup') || '[]');
+        if (backup.length === 0) {
+            this.showToast('没有可恢复的记录', 'info');
+            return;
+        }
+        this.history = backup.reverse().concat(this.history);
+        if (this.history.length > 50) this.history = this.history.slice(0, 50);
+        localStorage.setItem('transcription_history', JSON.stringify(this.history));
+        localStorage.removeItem('transcription_history_backup');
+        this.displayHistory();
+        this.showToast(`已恢复 ${backup.length} 条记录`, 'success');
+    }
+
+    async formatAllHistoryParagraphs() {
+        const selectedIndices = this.getSelectedHistoryIndices();
+
+        if (selectedIndices.length === 0) {
+            this.showToast('请先勾选需要格式化的历史记录', 'warning');
+            return;
+        }
+
+        this.showToast(`正在格式化 ${selectedIndices.length} 条记录...`, 'info');
+        let count = 0;
+
+        for (const i of selectedIndices) {
+            const item = this.history[i];
+            const text = item.result?.text || '';
+            if (!text || !text.trim()) continue;
+
+            try {
+                const response = await fetch('/api/v1/transcribe/format-text', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        text: text,
+                        segments: item.result?.segments || [],
+                        language: item.result?.language || 'zh',
+                    })
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.data?.formatted_text) {
+                        item.result.text = data.data.formatted_text;
+                        count++;
+                    }
+                } else {
+                    console.error(`格式化第 ${i + 1} 条失败, status:`, response.status);
+                }
+            } catch (e) {
+                console.error(`格式化第 ${i + 1} 条历史失败:`, e);
+            }
+        }
+
+        // 更新 localStorage 和页面
+        localStorage.setItem('transcription_history', JSON.stringify(this.history));
+        this.displayHistory();
+        this.showToast(`已完成 ${count} 条历史记录的段落格式化`, 'success');
     }
 
     extractTitle(path) {

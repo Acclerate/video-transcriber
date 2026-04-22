@@ -1,0 +1,38 @@
+# 开发环境覆盖配置
+# 使用: docker compose -f docker/docker-compose.yml -f docker/docker-compose.dev.yml up
+
+services:
+  video-transcriber:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: cpu
+    container_name: video-transcriber-dev
+    environment:
+      - ENVIRONMENT=development
+      - DEBUG=true
+      - LOG_LEVEL=DEBUG
+    volumes:
+      # 挂载源代码实现热重载
+      - ..:/app
+      # 不覆盖模型缓存和临时目录
+      - models-cache:/app/models_cache
+      - temp-data:/app/temp
+    command:
+      - python
+      - -m
+      - uvicorn
+      - api.main:app
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8665"
+      - --reload
+    ports:
+      - "8665:8665"
+      # Debugger端口
+      - "5678:5678"
+
+volumes:
+  models-cache:
+  temp-data:

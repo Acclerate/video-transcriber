@@ -525,3 +525,72 @@ async def get_transcription_logs(
     except Exception as e:
         logger.error(f"获取日志失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@transcribe_router.post("/reformat-paragraphs")
+async def reformat_all_paragraphs():
+    """
+    对所有已完成任务的转录结果重新应用段落格式化。
+
+    用于对升级前已存在于内存中的历史转录结果补充分段。
+    """
+    try:
+        service = get_transcription_service()
+        count = service.reformat_paragraphs()
+        return APIResponse(
+            code=200,
+            message=f"已重新格式化 {count} 个任务",
+            data={"reformatted_count": count}
+        )
+    except Exception as e:
+        logger.error(f"重新格式化段落失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@transcribe_router.post("/format-text")
+async def format_text_paragraphs(request: Request):
+    """
+    对传入的文本进行段落格式化。
+
+    前端将历史记录中的文本发送到此接口，返回分段后的文本。
+    """
+    try:
+        from utils.paragraph_formatter import format_paragraphs
+        body = await request.json()
+        text = body.get("text", "")
+        if not text or not text.strip():
+            return APIResponse(code=200, message="空文本", data={"formatted_text": ""})
+
+        # 构建临时 result 调用格式化
+        from models.schemas import TranscriptionResult
+        segments = body.get("segments", [])
+        result = TranscriptionResult.model_construct(
+            text=text,
+            language=body.get("language", "zh"),
+            confidence=0.95,
+            segments=segments,
+            processing_time=0.0,
+            whisper_model="sensevoice-small",
+            paragraphs=[],
+        )
+
+        paragraphs = format_paragraphs(
+            result,
+            silence_threshold=float(body.get("silence_threshold", 1.5)),
+            max_length=int(body.get("max_length", 250)),
+            min_length=int(body.get("min_length", 30)),
+        )
+
+        formatted_text = "\n\n".join(p.text for p in paragraphs if p.text.strip()) if paragraphs else text
+
+        return APIResponse(
+            code=200,
+            message="格式化成功",
+            data={
+                "formatted_text": formatted_text,
+                "paragraph_count": len(paragraphs),
+            }
+        )
+    except Exception as e:
+        logger.error(f"文本段落格式化失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
