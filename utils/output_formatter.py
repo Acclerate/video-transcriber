@@ -1,6 +1,6 @@
 """
 输出格式化工具
-将转录结果格式化为不同格式 (TXT, SRT, VTT, JSON, CHAR_JSON)
+将转录结果格式化为不同格式 (TXT, SRT, VTT, JSON, CHAR_JSON, VOLC_JSON)
 """
 
 import json
@@ -28,6 +28,8 @@ def format_output(result: TranscriptionResult, format_type: OutputFormat = Outpu
             return _format_vtt(result)
         elif format_type == OutputFormat.CHAR_JSON:
             return _format_char_json(result)
+        elif format_type == OutputFormat.VOLC_JSON:
+            return _format_volc_json(result)
         else:  # JSON
             return result.model_dump_json(indent=2)
 
@@ -58,6 +60,103 @@ def _format_char_json(result: TranscriptionResult) -> str:
         return json.dumps(all_chars, ensure_ascii=False, indent=2)
 
     return "[]"
+
+
+# 句子分隔标点
+_SENTENCE_END = set('。！？!?')
+_CLAUSE_END = set('，,；;：:、')
+
+
+def _segment_by_punctuation(
+    text: str,
+    char_timestamps: list,
+    max_segment_chars: int = 40,
+) -> list:
+    """
+    根据标点符号将文本和逐字时间戳分割为句子级片段。
+
+    优先在句号/感叹号/问号处断句，其次在逗号处断句。
+    当当前片段超过 max_segment_chars 且遇到逗号时也会断句。
+    """
+    if not char_timestamps:
+        return []
+
+    segments = []
+    seg_chars = []
+    seg_start = char_timestamps[0].start if hasattr(char_timestamps[0], 'start') else char_timestamps[0]["start"]
+    ts_idx = 0
+
+    def flush(end_ts):
+        if not seg_chars:
+            return
+        start_val = seg_start if isinstance(seg_start, (int, float)) else seg_start
+        end_val = end_ts.end if hasattr(end_ts, 'end') else end_ts["end"]
+        segments.append({
+            "start": round(start_val, 2),
+            "end": round(end_val, 2),
+            "text": "".join(seg_chars),
+        })
+
+    for ch in text:
+        if ch in _SENTENCE_END | _CLAUSE_END:
+            # 标点处断句：句末标点必断；逗号在片段较长时也断
+            if ch in _SENTENCE_END or len(seg_chars) >= max_segment_chars:
+                if seg_chars and ts_idx > 0:
+                    last_ts = char_timestamps[ts_idx - 1]
+                    flush(last_ts)
+                seg_chars = []
+                if ts_idx < len(char_timestamps):
+                    seg_start = char_timestamps[ts_idx].start if hasattr(char_timestamps[ts_idx], 'start') else char_timestamps[ts_idx]["start"]
+            continue
+
+        # 非标点字符，对应一个 char_timestamp
+        if ts_idx < len(char_timestamps):
+            ts = char_timestamps[ts_idx]
+            word = ts.word if hasattr(ts, 'word') else ts["word"]
+            if ch == word:
+                if not seg_chars:
+                    seg_start = ts.start if hasattr(ts, 'start') else ts["start"]
+                seg_chars.append(ch)
+                ts_idx += 1
+
+    # 处理剩余文本
+    if seg_chars and ts_idx > 0:
+        flush(char_timestamps[ts_idx - 1])
+
+    return segments
+
+
+def _format_volc_json(result: TranscriptionResult) -> str:
+    """
+    格式化为 volc.json 格式：
+    {
+      "segments": [{"start": 1.28, "end": 3.28, "text": "..."}],
+      "words": [{"word": "中", "start": 1.28, "end": 1.48}, ...]
+    }
+    """
+    # 收集 words
+    words = []
+    char_ts = result.char_timestamps
+    if not char_ts:
+        for seg in result.segments:
+            if seg.char_timestamps:
+                char_ts.extend(seg.char_timestamps)
+
+    for ts in char_ts:
+        words.append({
+            "word": ts.word,
+            "start": round(ts.start, 2),
+            "end": round(ts.end, 2),
+        })
+
+    # 生成句子级片段
+    segments = _segment_by_punctuation(result.text, char_ts)
+
+    output = {
+        "segments": segments,
+        "words": words,
+    }
+    return json.dumps(output, ensure_ascii=False, indent=2)
 
 
 def _format_txt(result: TranscriptionResult) -> str:

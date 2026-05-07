@@ -33,6 +33,7 @@ class OutputFormat(str, Enum):
     SRT = "srt"
     VTT = "vtt"
     CHAR_JSON = "char_json"
+    VOLC_JSON = "volc_json"
 
 
 class TimestampMode(str, Enum):

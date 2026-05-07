@@ -159,7 +159,7 @@ def cli(ctx, debug, log_level, skip_deps_check):
               default='auto', help='目标语言 (默认: auto)')
 @click.option('--output', '-o', help='输出文件路径')
 @click.option('--format', '-f', 'output_format',
-              type=click.Choice(['json', 'txt', 'srt', 'vtt', 'char_json']),
+              type=click.Choice(['json', 'txt', 'srt', 'vtt', 'char_json', 'volc_json']),
               default='txt', help='输出格式 (默认: txt)')
 @click.option('--timestamps', is_flag=True, help='包含时间戳（已弃用，使用 --timestamp-mode）')
 @click.option('--timestamp-mode', 'timestamp_mode',
@@ -277,7 +277,7 @@ async def _transcribe_single(file_path, model, language, output, output_format, 
               default='auto', help='目标语言')
 @click.option('--output-dir', '-d', help='输出目录')
 @click.option('--format', '-f', 'output_format',
-              type=click.Choice(['json', 'txt', 'srt', 'vtt', 'char_json']),
+              type=click.Choice(['json', 'txt', 'srt', 'vtt', 'char_json', 'volc_json']),
               default='txt', help='输出格式')
 @click.option('--max-concurrent', '-c', default=3, help='最大并发数')
 @click.option('--quiet', '-q', is_flag=True, help='静默模式')
