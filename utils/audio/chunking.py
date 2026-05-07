@@ -193,6 +193,7 @@ class AudioChunker:
 
         merged_text = []
         merged_segments = []
+        merged_char_timestamps = []
         total_time = 0.0
         detected_language = "unknown"
         all_confidences = []
@@ -206,6 +207,7 @@ class AudioChunker:
             chunk_language = chunk_result.get("language", "unknown")
             start_time = chunk_result.get("start_time", 0.0)
             end_time = chunk_result.get("end_time", 0.0)
+            chunk_char_ts = chunk_result.get("char_timestamps", [])
 
             # 使用第一个块的语言作为总体语言
             if i == 0 and chunk_language != "unknown":
@@ -220,12 +222,29 @@ class AudioChunker:
                     merged_text.append(chunk_text)
                 for seg in chunk_segments:
                     merged_segments.append(seg)
+                # 逐字时间戳：直接添加
+                merged_char_timestamps.extend(chunk_char_ts)
             else:
                 # 对于后续块，需要处理重叠
                 # 调整时间戳
                 for seg in chunk_segments:
                     seg["start"] = seg.get("start", 0) + time_offset
                     seg["end"] = seg.get("end", 0) + time_offset
+
+                # 逐字时间戳：偏移并去除重叠
+                if chunk_char_ts:
+                    overlap_threshold = start_time
+                    for ts in chunk_char_ts:
+                        adjusted_start = ts["start"] + start_time
+                        adjusted_end = ts["end"] + start_time
+                        # 跳过与上一块重叠的时间戳
+                        if merged_char_timestamps and adjusted_start <= merged_char_timestamps[-1]["end"]:
+                            continue
+                        merged_char_timestamps.append({
+                            "word": ts["word"],
+                            "start": round(adjusted_start, 3),
+                            "end": round(adjusted_end, 3)
+                        })
 
                 # 添加非重叠部分的文本
                 # 如果有 segments，从 segments 中提取
@@ -272,7 +291,8 @@ class AudioChunker:
             "segments": merged_segments,
             "language": detected_language,
             "confidence": avg_confidence,
-            "processing_time": total_time
+            "processing_time": total_time,
+            "char_timestamps": merged_char_timestamps
         }
 
         logger.info(f"合并完成: 总文本长度 {len(final_text)} 字符")

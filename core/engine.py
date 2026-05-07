@@ -134,9 +134,17 @@ class VideoTranscriptionEngine:
 
             # 使用 SenseVoice 转录器
             from .sensevoice_transcriber import create_sensevoice_transcriber
+            from models.schemas import TimestampMode
+
+            # 解析时间戳模式：向后兼容 with_timestamps
+            ts_mode = options.timestamp_mode
+            if ts_mode == TimestampMode.NONE and options.with_timestamps:
+                ts_mode = TimestampMode.SENTENCE
+
             transcriber = create_sensevoice_transcriber(
                 model_name=options.model.value if hasattr(options.model, 'value') else str(options.model),
-                model_cache_dir=str(self.temp_dir / "models_cache")
+                model_cache_dir=str(self.temp_dir / "models_cache"),
+                timestamp_mode=ts_mode.value if hasattr(ts_mode, 'value') else str(ts_mode)
             )
 
             transcription_result = await transcriber.transcribe_audio(
@@ -144,7 +152,8 @@ class VideoTranscriptionEngine:
                 language=options.language,
                 with_timestamps=options.with_timestamps,
                 temperature=options.temperature,
-                progress_callback=transcribe_progress
+                progress_callback=transcribe_progress,
+                timestamp_mode=ts_mode.value if hasattr(ts_mode, 'value') else str(ts_mode)
             )
 
             # 卸载模型释放内存

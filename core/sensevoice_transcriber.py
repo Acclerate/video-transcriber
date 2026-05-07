@@ -27,9 +27,17 @@ except ImportError:
 from models.schemas import (
     TranscriptionResult,
     TranscriptionSegment,
+    CharTimestamp,
     Language,
-    OutputFormat
+    OutputFormat,
+    TimestampMode
 )
+
+
+class _SkipStandardParse(Exception):
+    """内部控制流异常：跳过标准格式解析"""
+    pass
+
 
 # 导入音频分块处理模块
 try:
@@ -66,7 +74,8 @@ class SenseVoiceTranscriber:
         enable_chunking: bool = True,
         chunk_duration_seconds: int = 180,
         chunk_overlap_seconds: int = 2,
-        min_duration_for_chunking: int = 300
+        min_duration_for_chunking: int = 300,
+        timestamp_mode: str = "none"
     ):
         """
         初始化 SenseVoice 转录器
@@ -82,6 +91,7 @@ class SenseVoiceTranscriber:
             chunk_duration_seconds: 每块时长（秒），默认180秒（3分钟）
             chunk_overlap_seconds: 块之间重叠时间（秒），默认2秒
             min_duration_for_chunking: 超过此时长（秒）才启用分块，默认300秒（5分钟）
+            timestamp_mode: 时间戳模式 ('none', 'sentence', 'char')
         """
         if not FUNASR_AVAILABLE:
             raise RuntimeError(
@@ -93,6 +103,7 @@ class SenseVoiceTranscriber:
         self.default_language = language
         self.enable_punctuation = enable_punctuation
         self.clean_special_tokens = clean_special_tokens
+        self.timestamp_mode = timestamp_mode
 
         # 音频分块处理配置
         self.enable_chunking = enable_chunking and CHUNKING_AVAILABLE
@@ -278,7 +289,8 @@ class SenseVoiceTranscriber:
         language: Language = Language.AUTO,
         with_timestamps: bool = False,
         temperature: float = 0.0,
-        progress_callback: Optional[Callable[[float], None]] = None
+        progress_callback: Optional[Callable[[float], None]] = None,
+        timestamp_mode: Optional[str] = None
     ) -> TranscriptionResult:
         """
         转录音频文件
@@ -289,6 +301,7 @@ class SenseVoiceTranscriber:
             with_timestamps: 是否包含时间戳
             temperature: 采样温度 (SenseVoice 忽略此参数)
             progress_callback: 进度回调函数
+            timestamp_mode: 时间戳模式 (覆盖初始化时的设置)
 
         Returns:
             TranscriptionResult: 转录结果
@@ -311,6 +324,9 @@ class SenseVoiceTranscriber:
             # 准备语言参数
             lang = self._map_language(language)
 
+            # 确定实际的时间戳模式
+            actual_timestamp_mode = timestamp_mode or self.timestamp_mode
+
             # 执行转录
             loop = asyncio.get_running_loop()
             result = await loop.run_in_executor(
@@ -319,7 +335,8 @@ class SenseVoiceTranscriber:
                 audio_path,
                 lang,
                 with_timestamps,
-                progress_callback
+                progress_callback,
+                actual_timestamp_mode
             )
 
             if progress_callback:
@@ -339,10 +356,10 @@ class SenseVoiceTranscriber:
         if language == Language.AUTO:
             return "auto"
         lang_map = {
-            Language.ZH: "zh",
-            Language.EN: "en",
-            Language.JA: "ja",
-            Language.KO: "ko",
+            Language.CHINESE: "zh",
+            Language.ENGLISH: "en",
+            Language.JAPANESE: "ja",
+            Language.KOREAN: "ko",
         }
         return lang_map.get(language, "auto")
 
@@ -581,7 +598,8 @@ class SenseVoiceTranscriber:
         audio_path: str,
         language: str,
         with_timestamps: bool,
-        progress_callback: Optional[Callable[[float], None]] = None
+        progress_callback: Optional[Callable[[float], None]] = None,
+        timestamp_mode: str = "none"
     ) -> TranscriptionResult:
         """同步执行转录"""
         import time
@@ -611,8 +629,11 @@ class SenseVoiceTranscriber:
             else:
                 language_str = str(language)
 
+            # 确定实际的时间戳模式
+            actual_mode = timestamp_mode or self.timestamp_mode
+
             logger.info(f"开始 SenseVoice 转录: {audio_path}")
-            logger.info(f"语言模式: {language_str}, 时间戳: {with_timestamps}")
+            logger.info(f"语言模式: {language_str}, 时间戳模式: {actual_mode}")
 
             # ========== 音频分块处理 ==========
             # 检查是否需要对音频进行分块处理
@@ -626,7 +647,8 @@ class SenseVoiceTranscriber:
                                f"将启用分块处理（每块 {self.chunk_duration_seconds}s）")
                     # 使用同步分块处理方法
                     return self._transcribe_with_chunking_sync(
-                        audio_path, language_str, with_timestamps, progress_callback, start_time
+                        audio_path, language_str, with_timestamps, progress_callback, start_time,
+                        timestamp_mode=actual_mode
                     )
                 else:
                     logger.info(f"音频时长 {audio_duration:.1f}s 不需要分块处理")
@@ -646,6 +668,11 @@ class SenseVoiceTranscriber:
                 rec_config_kwargs["language"] = language_str
             else:
                 rec_config_kwargs["language"] = "auto"  # 自动检测语言
+
+            # 逐字时间戳模式：启用 output_timestamp
+            if actual_mode == "char":
+                rec_config_kwargs["output_timestamp"] = True
+                logger.info("已启用 output_timestamp 逐字时间戳模式")
 
             # 执行推理
             logger.info("正在执行 SenseVoice 推理...")
@@ -809,11 +836,115 @@ class SenseVoiceTranscriber:
             # 提取转录文本和时间戳
             text = ""
             segments = []
+            char_timestamps = []
             detected_lang = language_str if language_str != "auto" else "zh"
 
             logger.info(f"处理 SenseVoice 结果，共 {len(first_result)} 个片段")
 
+            # 检查是否为逐字时间戳格式 (output_timestamp=True 的输出)
+            # 格式: first_result 中每个条目包含 "words" 和 "timestamp" 键
+            is_char_timestamp_format = False
+            if isinstance(first_result, (list, tuple)) and len(first_result) > 0:
+                first_item = first_result[0]
+                if isinstance(first_item, dict) and "words" in first_item:
+                    is_char_timestamp_format = True
+            elif isinstance(first_result, dict) and "words" in first_result:
+                is_char_timestamp_format = True
+
+            if is_char_timestamp_format and actual_mode == "char":
+                logger.info("检测到逐字时间戳格式结果 (output_timestamp=True)")
+                try:
+                    # 将 first_result 统一为列表
+                    result_entries = first_result if isinstance(first_result, (list, tuple)) else [first_result]
+                    all_char_ts = []
+
+                    for entry_idx, entry in enumerate(result_entries):
+                        if not isinstance(entry, dict):
+                            continue
+
+                        entry_text = entry.get("text", "")
+                        entry_text = self._clean_special_tokens(entry_text)
+
+                        words = entry.get("words", [])
+                        timestamps = entry.get("timestamp", [])
+
+                        if not words or not timestamps:
+                            logger.warning(f"条目 {entry_idx} 的 words 或 timestamp 为空，跳过")
+                            if entry_text:
+                                text += entry_text
+                            continue
+
+                        # 处理长度不匹配
+                        if len(words) != len(timestamps):
+                            logger.warning(
+                                f"条目 {entry_idx}: words({len(words)}) 与 timestamp({len(timestamps)}) "
+                                f"长度不匹配，截断到较短长度"
+                            )
+                            min_len = min(len(words), len(timestamps))
+                            words = words[:min_len]
+                            timestamps = timestamps[:min_len]
+
+                        # 提取逐字时间戳，跳过特殊标记
+                        entry_char_ts = []
+                        entry_chars = []
+                        for w, ts in zip(words, timestamps):
+                            if not isinstance(ts, (list, tuple)) or len(ts) < 2:
+                                continue
+                            # 跳过特殊标记
+                            clean_w = self._clean_special_tokens(str(w))
+                            if not clean_w or clean_w.startswith("<|") or clean_w.startswith("|>"):
+                                continue
+                            try:
+                                start_s = float(ts[0]) / 1000.0
+                                end_s = float(ts[1]) / 1000.0
+                                if end_s < start_s:
+                                    continue
+                                entry_char_ts.append(CharTimestamp(
+                                    word=clean_w, start=round(start_s, 3), end=round(end_s, 3)
+                                ))
+                                entry_chars.append(clean_w)
+                            except (ValueError, TypeError) as e:
+                                logger.debug(f"跳过无效时间戳: word={w}, ts={ts}, err={e}")
+                                continue
+
+                        all_char_ts.extend(entry_char_ts)
+                        entry_full_text = "".join(entry_chars) if entry_chars else entry_text
+                        if entry_full_text:
+                            text += entry_full_text
+                            # 为每个 VAD 段创建一个 segment
+                            if entry_char_ts:
+                                segments.append(TranscriptionSegment(
+                                    start_time=entry_char_ts[0].start,
+                                    end_time=entry_char_ts[-1].end,
+                                    text=entry_full_text,
+                                    confidence=0.95,
+                                    char_timestamps=entry_char_ts
+                                ))
+                            else:
+                                segments.append(TranscriptionSegment(
+                                    start_time=0.0, end_time=0.0,
+                                    text=entry_full_text, confidence=0.95
+                                ))
+
+                    char_timestamps = all_char_ts
+                    logger.info(f"逐字时间戳提取完成: 共 {len(char_timestamps)} 个字/词")
+
+                except Exception as e:
+                    logger.error(f"处理逐字时间戳结果时出错: {e}")
+                    import traceback
+                    logger.error(traceback.format_exc())
+                    # 回退到标准解析
+                    is_char_timestamp_format = False
+                    text = ""
+                    segments = []
+                    char_timestamps = []
+
+            # 标准格式解析（当逐字时间戳未处理时执行）
             try:
+                # 如果逐字时间戳已成功提取，跳过标准解析
+                if text:
+                    raise _SkipStandardParse()
+
                 # SenseVoice 返回格式可能是多种格式，需要灵活处理
                 # 格式1: 字符串列表 ["句子1", "句子2"]
                 # 格式2: 字典列表 [{"sentence": "文本", "timestamp": [...]}]
@@ -959,6 +1090,8 @@ class SenseVoiceTranscriber:
                         confidence=0.95
                     ))
 
+            except _SkipStandardParse:
+                logger.info("逐字时间戳已处理，跳过标准解析")
             except Exception as e:
                 logger.error(f"处理 SenseVoice 结果时出错: {e}")
                 import traceback
@@ -1021,7 +1154,8 @@ class SenseVoiceTranscriber:
                 confidence=confidence,
                 segments=segments,
                 processing_time=processing_time,
-                whisper_model=self.model_name
+                whisper_model=self.model_name,
+                char_timestamps=char_timestamps
             )
 
         except Exception as e:
@@ -1038,7 +1172,8 @@ class SenseVoiceTranscriber:
         language: str,
         with_timestamps: bool,
         progress_callback: Optional[Callable[[float], None]],
-        start_time: float
+        start_time: float,
+        timestamp_mode: str = "none"
     ) -> TranscriptionResult:
         """
         使用分块处理转录长音频（同步版本）
@@ -1049,6 +1184,7 @@ class SenseVoiceTranscriber:
             with_timestamps: 是否包含时间戳
             progress_callback: 进度回调
             start_time: 开始时间
+            timestamp_mode: 时间戳模式
 
         Returns:
             TranscriptionResult: 转录结果
@@ -1090,7 +1226,8 @@ class SenseVoiceTranscriber:
 
                     # 处理单个块 - 同步调用
                     chunk_result = self._transcribe_single_chunk_sync(
-                        chunk_path, language, with_timestamps, chunk_start, chunk_end
+                        chunk_path, language, with_timestamps, chunk_start, chunk_end,
+                        timestamp_mode=timestamp_mode
                     )
                     chunk_results.append(chunk_result)
 
@@ -1131,6 +1268,16 @@ class SenseVoiceTranscriber:
                 overlap_seconds=self.chunk_overlap_seconds
             )
 
+            # 提取合并后的逐字时间戳
+            merged_char_timestamps = []
+            if timestamp_mode == "char":
+                raw_char_ts = merged_result.get("char_timestamps", [])
+                for ts in raw_char_ts:
+                    merged_char_timestamps.append(CharTimestamp(
+                        word=ts["word"], start=ts["start"], end=ts["end"]
+                    ))
+                logger.info(f"合并后逐字时间戳: {len(merged_char_timestamps)} 个")
+
             # 后处理：清理特殊标记和添加标点符号
             final_text = merged_result.get("text", "")
 
@@ -1155,7 +1302,8 @@ class SenseVoiceTranscriber:
                 confidence=merged_result.get("confidence", 0.95),
                 segments=[],
                 processing_time=processing_time,
-                whisper_model=self.model_name
+                whisper_model=self.model_name,
+                char_timestamps=merged_char_timestamps
             )
 
         except Exception as e:
@@ -1170,7 +1318,8 @@ class SenseVoiceTranscriber:
         language: str,
         with_timestamps: bool,
         chunk_start: float,
-        chunk_end: float
+        chunk_end: float,
+        timestamp_mode: str = "none"
     ) -> dict:
         """
         转录单个音频块（同步版本）
@@ -1181,6 +1330,7 @@ class SenseVoiceTranscriber:
             with_timestamps: 是否包含时间戳
             chunk_start: 块开始时间
             chunk_end: 块结束时间
+            timestamp_mode: 时间戳模式
 
         Returns:
             dict: 转录结果
@@ -1210,6 +1360,10 @@ class SenseVoiceTranscriber:
             else:
                 rec_config_kwargs["language"] = "auto"
 
+            # 逐字时间戳模式
+            if timestamp_mode == "char":
+                rec_config_kwargs["output_timestamp"] = True
+
             # 执行推理
             result = self.model.generate(
                 input=chunk_path,
@@ -1222,6 +1376,11 @@ class SenseVoiceTranscriber:
             # 提取文本
             text = self._extract_text_from_result(result)
 
+            # 提取逐字时间戳（如果启用）
+            char_ts_list = []
+            if timestamp_mode == "char":
+                char_ts_list = self._extract_char_ts_from_raw_result(result, chunk_start)
+
             return {
                 "text": text,
                 "segments": [],
@@ -1229,7 +1388,8 @@ class SenseVoiceTranscriber:
                 "confidence": 0.95,
                 "processing_time": processing_time,
                 "start_time": chunk_start,
-                "end_time": chunk_end
+                "end_time": chunk_end,
+                "char_timestamps": char_ts_list
             }
 
         except Exception as e:
@@ -1503,6 +1663,78 @@ class SenseVoiceTranscriber:
 
         return text
 
+    def _extract_char_ts_from_raw_result(
+        self, result, time_offset: float = 0.0
+    ) -> List[dict]:
+        """
+        从 SenseVoice output_timestamp=True 的原始结果中提取逐字时间戳。
+
+        Args:
+            result: model.generate() 的原始返回值
+            time_offset: 时间偏移量（秒），用于分块场景
+
+        Returns:
+            List[dict]: [{"word": "字", "start": 1.28, "end": 1.48}, ...]
+        """
+        char_ts_list = []
+
+        try:
+            if result is None or isinstance(result, (int, str)):
+                return []
+
+            if not hasattr(result, '__len__') or len(result) == 0:
+                return []
+
+            first_result = result[0]
+            if isinstance(first_result, (int, float, str)):
+                return []
+
+            # 统一为列表处理
+            entries = first_result if isinstance(first_result, (list, tuple)) else [first_result]
+
+            for entry in entries:
+                if not isinstance(entry, dict):
+                    continue
+
+                words = entry.get("words", [])
+                timestamps = entry.get("timestamp", [])
+
+                if not words or not timestamps:
+                    continue
+
+                # 处理长度不匹配
+                if len(words) != len(timestamps):
+                    logger.warning(
+                        f"words({len(words)}) 与 timestamp({len(timestamps)}) 长度不匹配"
+                    )
+                    min_len = min(len(words), len(timestamps))
+                    words = words[:min_len]
+                    timestamps = timestamps[:min_len]
+
+                for w, ts in zip(words, timestamps):
+                    if not isinstance(ts, (list, tuple)) or len(ts) < 2:
+                        continue
+                    clean_w = self._clean_special_tokens(str(w))
+                    if not clean_w or clean_w.startswith("<|") or clean_w.startswith("|>"):
+                        continue
+                    try:
+                        start_s = float(ts[0]) / 1000.0 + time_offset
+                        end_s = float(ts[1]) / 1000.0 + time_offset
+                        if end_s < start_s:
+                            continue
+                        char_ts_list.append({
+                            "word": clean_w,
+                            "start": round(start_s, 3),
+                            "end": round(end_s, 3)
+                        })
+                    except (ValueError, TypeError):
+                        continue
+
+        except Exception as e:
+            logger.warning(f"提取逐字时间戳时出错: {e}")
+
+        return char_ts_list
+
     def get_model_info(self) -> Dict[str, Any]:
         """获取当前模型信息"""
         config = self.MODEL_CONFIGS.get(self.model_name, {})
@@ -1540,7 +1772,8 @@ def create_sensevoice_transcriber(
     enable_chunking: bool = True,
     chunk_duration_seconds: int = 300,
     chunk_overlap_seconds: int = 2,
-    min_duration_for_chunking: int = 600
+    min_duration_for_chunking: int = 600,
+    timestamp_mode: str = "none"
 ) -> SenseVoiceTranscriber:
     """
     创建 SenseVoice 转录器实例
@@ -1556,6 +1789,7 @@ def create_sensevoice_transcriber(
         chunk_duration_seconds: 每块时长（秒），默认180秒（3分钟）
         chunk_overlap_seconds: 块之间重叠时间（秒），默认2秒
         min_duration_for_chunking: 超过此时长（秒）才启用分块，默认300秒（5分钟）
+        timestamp_mode: 时间戳模式 ('none', 'sentence', 'char')
 
     Returns:
         SenseVoiceTranscriber: SenseVoice 转录器实例
@@ -1570,7 +1804,8 @@ def create_sensevoice_transcriber(
         enable_chunking=enable_chunking,
         chunk_duration_seconds=chunk_duration_seconds,
         chunk_overlap_seconds=chunk_overlap_seconds,
-        min_duration_for_chunking=min_duration_for_chunking
+        min_duration_for_chunking=min_duration_for_chunking,
+        timestamp_mode=timestamp_mode
     )
 
 

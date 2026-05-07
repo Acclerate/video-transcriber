@@ -15,7 +15,7 @@ from loguru import logger
 from config import settings, Settings
 from models.schemas import (
     TranscriptionResult, TaskInfo, TaskStatus,
-    ProcessOptions, TranscriptionModel, Language, OutputFormat
+    ProcessOptions, TranscriptionModel, Language, OutputFormat, TimestampMode
 )
 from core.engine import VideoTranscriptionEngine
 from core.downloader import AudioExtractor
@@ -349,6 +349,11 @@ class TranscriptionService:
 
         logger.info(f"音频时长: {audio_duration:.1f}s, 使用设备: {device}")
 
+        # 解析时间戳模式：向后兼容 with_timestamps 布尔参数
+        timestamp_mode = options.timestamp_mode
+        if timestamp_mode == TimestampMode.NONE and options.with_timestamps:
+            timestamp_mode = TimestampMode.SENTENCE
+
         # 创建独立的转录器实例
         transcriber = create_sensevoice_transcriber(
             model_name=options.model.value if hasattr(options.model, 'value') else str(options.model),
@@ -360,7 +365,9 @@ class TranscriptionService:
             enable_chunking=getattr(self.config, 'ENABLE_AUDIO_CHUNKING', True),
             chunk_duration_seconds=getattr(self.config, 'CHUNK_DURATION_SECONDS', 180),
             chunk_overlap_seconds=getattr(self.config, 'CHUNK_OVERLAP_SECONDS', 2),
-            min_duration_for_chunking=getattr(self.config, 'MIN_DURATION_FOR_CHUNKING', 300)
+            min_duration_for_chunking=getattr(self.config, 'MIN_DURATION_FOR_CHUNKING', 300),
+            # 逐字时间戳模式
+            timestamp_mode=timestamp_mode.value if hasattr(timestamp_mode, 'value') else str(timestamp_mode)
         )
 
         def update_progress(progress: float):
@@ -374,7 +381,8 @@ class TranscriptionService:
             language=options.language,
             with_timestamps=options.with_timestamps,
             temperature=options.temperature,
-            progress_callback=update_progress
+            progress_callback=update_progress,
+            timestamp_mode=timestamp_mode.value if hasattr(timestamp_mode, 'value') else str(timestamp_mode)
         )
 
         if progress_callback:

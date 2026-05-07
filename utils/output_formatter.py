@@ -1,8 +1,9 @@
 """
 输出格式化工具
-将转录结果格式化为不同格式 (TXT, SRT, VTT, JSON)
+将转录结果格式化为不同格式 (TXT, SRT, VTT, JSON, CHAR_JSON)
 """
 
+import json
 from loguru import logger
 from models.schemas import TranscriptionResult, OutputFormat
 
@@ -25,12 +26,38 @@ def format_output(result: TranscriptionResult, format_type: OutputFormat = Outpu
             return _format_srt(result)
         elif format_type == OutputFormat.VTT:
             return _format_vtt(result)
+        elif format_type == OutputFormat.CHAR_JSON:
+            return _format_char_json(result)
         else:  # JSON
             return result.model_dump_json(indent=2)
 
     except Exception as e:
         logger.error(f"输出格式化失败: {e}")
         return result.text  # 回退到纯文本
+
+
+def _format_char_json(result: TranscriptionResult) -> str:
+    """格式化为逐字时间戳 JSON: [{"word": "中", "start": 1.28, "end": 1.48}, ...]"""
+    if result.char_timestamps:
+        char_data = [
+            {"word": ts.word, "start": round(ts.start, 2), "end": round(ts.end, 2)}
+            for ts in result.char_timestamps
+        ]
+        return json.dumps(char_data, ensure_ascii=False, indent=2)
+
+    # 回退：从 segments 的 char_timestamps 中收集
+    all_chars = []
+    for seg in result.segments:
+        if seg.char_timestamps:
+            all_chars.extend([
+                {"word": ts.word, "start": round(ts.start, 2), "end": round(ts.end, 2)}
+                for ts in seg.char_timestamps
+            ])
+
+    if all_chars:
+        return json.dumps(all_chars, ensure_ascii=False, indent=2)
+
+    return "[]"
 
 
 def _format_txt(result: TranscriptionResult) -> str:

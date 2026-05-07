@@ -22,7 +22,7 @@ from dotenv import load_dotenv
 # 添加项目根目录到Python路径
 sys.path.insert(0, str(Path(__file__).parent))
 
-from models.schemas import TranscriptionModel, Language, OutputFormat, ProcessOptions
+from models.schemas import TranscriptionModel, Language, OutputFormat, ProcessOptions, TimestampMode
 from config import settings
 from services import TranscriptionService
 from utils.logging import setup_default_logger
@@ -159,16 +159,19 @@ def cli(ctx, debug, log_level, skip_deps_check):
               default='auto', help='目标语言 (默认: auto)')
 @click.option('--output', '-o', help='输出文件路径')
 @click.option('--format', '-f', 'output_format',
-              type=click.Choice(['json', 'txt', 'srt', 'vtt']),
+              type=click.Choice(['json', 'txt', 'srt', 'vtt', 'char_json']),
               default='txt', help='输出格式 (默认: txt)')
-@click.option('--timestamps', is_flag=True, help='包含时间戳')
+@click.option('--timestamps', is_flag=True, help='包含时间戳（已弃用，使用 --timestamp-mode）')
+@click.option('--timestamp-mode', 'timestamp_mode',
+              type=click.Choice(['none', 'sentence', 'char']),
+              default='none', help='时间戳模式: none=无, sentence=句级, char=逐字 (默认: none)')
 @click.option('--quiet', '-q', is_flag=True, help='静默模式')
-def transcribe(file_path, model, language, output, output_format, timestamps, quiet):
+def transcribe(file_path, model, language, output, output_format, timestamps, timestamp_mode, quiet):
     """转录单个媒体文件（视频/音频）"""
-    asyncio.run(_transcribe_single(file_path, model, language, output, output_format, timestamps, quiet))
+    asyncio.run(_transcribe_single(file_path, model, language, output, output_format, timestamps, timestamp_mode, quiet))
 
 
-async def _transcribe_single(file_path, model, language, output, output_format, timestamps, quiet):
+async def _transcribe_single(file_path, model, language, output, output_format, timestamps, timestamp_mode, quiet):
     """异步转录单个媒体文件"""
     try:
         if not quiet:
@@ -185,11 +188,18 @@ async def _transcribe_single(file_path, model, language, output, output_format, 
             console.print("[bold red]错误:[/bold red] 路径不是文件")
             sys.exit(1)
 
+        # 解析 timestamp_mode，向后兼容 --timestamps 标志
+        try:
+            ts_mode = TimestampMode(timestamp_mode)
+        except ValueError:
+            ts_mode = TimestampMode.NONE
+
         # 设置选项
         options = ProcessOptions(
             model=TranscriptionModel(model),
             language=Language(language),
             with_timestamps=timestamps,
+            timestamp_mode=ts_mode,
             output_format=OutputFormat(output_format),
             enable_gpu=settings.ENABLE_GPU,
             temperature=settings.DEFAULT_TEMPERATURE
@@ -267,7 +277,7 @@ async def _transcribe_single(file_path, model, language, output, output_format, 
               default='auto', help='目标语言')
 @click.option('--output-dir', '-d', help='输出目录')
 @click.option('--format', '-f', 'output_format',
-              type=click.Choice(['json', 'txt', 'srt', 'vtt']),
+              type=click.Choice(['json', 'txt', 'srt', 'vtt', 'char_json']),
               default='txt', help='输出格式')
 @click.option('--max-concurrent', '-c', default=3, help='最大并发数')
 @click.option('--quiet', '-q', is_flag=True, help='静默模式')

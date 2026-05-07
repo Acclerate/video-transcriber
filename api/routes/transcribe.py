@@ -17,7 +17,7 @@ from loguru import logger
 from config import settings
 from models.schemas import (
     ProcessOptions, APIResponse, TranscribeResponse,
-    TranscriptionResult, TranscriptionModel, Language, OutputFormat
+    TranscriptionResult, TranscriptionModel, Language, OutputFormat, TimestampMode
 )
 from services import TranscriptionService, FileService
 
@@ -103,6 +103,7 @@ async def transcribe_file(
     language: str = Form(default="auto"),
     format: str = Form(default="txt"),
     timestamps: bool = Form(default=False),
+    timestamp_mode: str = Form(default="none"),
     service: TranscriptionService = Depends(get_transcription_service),
     file_service: FileService = Depends(get_file_service)
 ):
@@ -137,10 +138,17 @@ async def transcribe_file(
 
         # 准备处理选项
         normalized_model = normalize_model_name(model)
+        # 解析 timestamp_mode，验证合法性
+        try:
+            ts_mode = TimestampMode(timestamp_mode)
+        except ValueError:
+            ts_mode = TimestampMode.NONE
+
         options = ProcessOptions(
             model=TranscriptionModel(normalized_model),
             language=Language(language),
             with_timestamps=timestamps,
+            timestamp_mode=ts_mode,
             output_format=OutputFormat(format),
             enable_gpu=settings.ENABLE_GPU,
             temperature=settings.DEFAULT_TEMPERATURE

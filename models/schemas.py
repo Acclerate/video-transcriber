@@ -32,6 +32,14 @@ class OutputFormat(str, Enum):
     TXT = "txt"
     SRT = "srt"
     VTT = "vtt"
+    CHAR_JSON = "char_json"
+
+
+class TimestampMode(str, Enum):
+    """时间戳模式"""
+    NONE = "none"
+    SENTENCE = "sentence"
+    CHAR = "char"
 
 
 class Language(str, Enum):
@@ -112,12 +120,20 @@ class MediaFileInfo(BaseModel):
         return v
 
 
+class CharTimestamp(BaseModel):
+    """单字时间戳"""
+    word: str = Field(..., description="字/词")
+    start: float = Field(..., description="开始时间(秒)")
+    end: float = Field(..., description="结束时间(秒)")
+
+
 class TranscriptionSegment(BaseModel):
     """转录片段"""
     start_time: float = Field(..., description="开始时间(秒)")
     end_time: float = Field(..., description="结束时间(秒)")
     text: str = Field(..., description="文本内容")
     confidence: float = Field(..., ge=0.0, le=1.0, description="置信度")
+    char_timestamps: List[CharTimestamp] = Field(default=[], description="逐字时间戳")
 
     @validator('end_time')
     def end_time_must_be_greater_than_start_time(cls, v, values):
@@ -144,6 +160,7 @@ class TranscriptionResult(BaseModel):
     processing_time: float = Field(..., description="处理时间(秒)")
     whisper_model: TranscriptionModel = Field(default=TranscriptionModel.SENSEVOICE_SMALL, description="使用的模型")
     paragraphs: List[Paragraph] = Field(default=[], description="段落列表")
+    char_timestamps: List[CharTimestamp] = Field(default=[], description="逐字时间戳(完整文本)")
 
     model_config = {"protected_namespaces": ()}
 
@@ -163,7 +180,8 @@ class ProcessOptions(BaseModel):
     """处理选项"""
     model: TranscriptionModel = Field(TranscriptionModel.SENSEVOICE_SMALL, description="语音识别模型")
     language: Language = Field(Language.AUTO, description="目标语言")
-    with_timestamps: bool = Field(False, description="是否包含时间戳")
+    with_timestamps: bool = Field(False, description="是否包含时间戳(已弃用，使用timestamp_mode)")
+    timestamp_mode: TimestampMode = Field(TimestampMode.NONE, description="时间戳模式")
     output_format: OutputFormat = Field(OutputFormat.JSON, description="输出格式")
     enable_gpu: Optional[bool] = Field(None, description="是否启用GPU")
     temperature: float = Field(0.0, ge=0.0, le=1.0, description="采样温度")
@@ -391,9 +409,11 @@ __all__ = [
     # 枚举
     "TaskStatus", "TranscriptionModel", "OutputFormat", "Language",
     "MediaFormat", "VideoFormat", "WSMessageType", "ErrorCode",
+    "TimestampMode",
 
     # 基础模型
-    "MediaFileInfo", "VideoFileInfo", "TranscriptionSegment", "Paragraph", "TranscriptionResult",
+    "MediaFileInfo", "VideoFileInfo", "CharTimestamp",
+    "TranscriptionSegment", "Paragraph", "TranscriptionResult",
 
     # 请求模型
     "ProcessOptions", "TranscribeRequest", "BatchTranscribeRequest",
