@@ -12,6 +12,9 @@ from typing import Optional
 
 from loguru import logger
 
+# 防止重复将 ffmpeg 目录添加到 PATH
+_path_configured = False
+
 # 已知的本地 FFmpeg 安装路径（优先级从高到低）
 _LOCAL_FFMPEG_DIRS = [
     Path("D:/tools/ffmpeg-8.1-essentials_build/bin"),
@@ -59,6 +62,7 @@ def configure_pydub_ffmpeg() -> None:
     并将 ffmpeg 目录添加到 PATH 环境变量，
     确保 FunASR/torchaudio 等库也能找到 ffmpeg。
     """
+    global _path_configured
     try:
         from pydub.audio_segment import AudioSegment
 
@@ -67,12 +71,14 @@ def configure_pydub_ffmpeg() -> None:
             AudioSegment.converter = ffmpeg_path
             logger.debug(f"pydub converter 设置为: {ffmpeg_path}")
 
-            # 将 ffmpeg 所在目录添加到 PATH，使 FunASR/torchaudio 等库能通过 subprocess 找到 ffmpeg
-            ffmpeg_dir = str(Path(ffmpeg_path).parent)
-            current_path = os.environ.get("PATH", "")
-            if ffmpeg_dir not in current_path:
-                os.environ["PATH"] = ffmpeg_dir + os.pathsep + current_path
-                logger.info(f"已将 ffmpeg 目录添加到 PATH: {ffmpeg_dir}")
+            # 将 ffmpeg 所在目录添加到 PATH（仅执行一次）
+            if not _path_configured:
+                ffmpeg_dir = str(Path(ffmpeg_path).parent)
+                path_dirs = os.environ.get("PATH", "").split(os.pathsep)
+                if ffmpeg_dir not in path_dirs:
+                    os.environ["PATH"] = ffmpeg_dir + os.pathsep + os.environ.get("PATH", "")
+                    logger.info(f"已将 ffmpeg 目录添加到 PATH: {ffmpeg_dir}")
+                _path_configured = True
 
         ffprobe_path = get_ffprobe_path()
         if ffprobe_path and hasattr(AudioSegment, 'ffprobe'):

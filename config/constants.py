@@ -138,28 +138,6 @@ MIN_SILENCE_LEN = 1000  # 最小静音长度 (ms)
 KEEP_SILENCE = 500  # 保留静音 (ms)
 
 # ============================================================
-# 任务状态
-# ============================================================
-
-class TaskStatus:
-    """任务状态常量"""
-    PENDING = "pending"
-    EXTRACTING = "extracting"
-    TRANSCRIBING = "transcribing"
-    COMPLETED = "completed"
-    FAILED = "failed"
-    CANCELLED = "cancelled"
-
-TASK_STATUS_CHOICES = [
-    TaskStatus.PENDING,
-    TaskStatus.EXTRACTING,
-    TaskStatus.TRANSCRIBING,
-    TaskStatus.COMPLETED,
-    TaskStatus.FAILED,
-    TaskStatus.CANCELLED,
-]
-
-# ============================================================
 # 错误消息
 # ============================================================
 

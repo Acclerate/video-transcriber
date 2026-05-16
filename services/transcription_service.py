@@ -17,11 +17,26 @@ from models.schemas import (
     TranscriptionResult, TaskInfo, TaskStatus,
     ProcessOptions, TranscriptionModel, Language, OutputFormat, TimestampMode
 )
-from core.engine import VideoTranscriptionEngine
 from core.downloader import AudioExtractor
 from .file_service import FileService
 from .task_service import TaskService
 from utils.paragraph_formatter import format_paragraphs
+
+
+def _apply_paragraph_formatting(result, config):
+    """对转录结果应用段落格式化，格式化后为空则回退到原文。"""
+    original_text = result.text
+    result.paragraphs = format_paragraphs(
+        result,
+        silence_threshold=getattr(config, 'PARAGRAPH_SILENCE_THRESHOLD', 1.5),
+        max_length=getattr(config, 'PARAGRAPH_MAX_LENGTH', 250),
+        min_length=getattr(config, 'PARAGRAPH_MIN_LENGTH', 30),
+    )
+    if result.paragraphs:
+        joined = "\n\n".join(
+            p.text for p in result.paragraphs if p.text.strip()
+        )
+        result.text = joined if joined else original_text
 
 
 class TranscriptionService:
@@ -40,10 +55,6 @@ class TranscriptionService:
         self.config = config or settings
 
         # 初始化组件
-        self.engine = VideoTranscriptionEngine(
-            temp_dir=self.config.TEMP_DIR,
-            task_timeout=self.config.TASK_TIMEOUT
-        )
         self.audio_extractor = AudioExtractor(
             temp_dir=self.config.TEMP_DIR,
             cleanup_after=self.config.CLEANUP_AFTER
@@ -394,20 +405,7 @@ class TranscriptionService:
         # 段落格式化
         if getattr(self.config, 'ENABLE_PARAGRAPH_FORMATTING', True):
             try:
-                original_text = result.text
-                result.paragraphs = format_paragraphs(
-                    result,
-                    silence_threshold=getattr(self.config, 'PARAGRAPH_SILENCE_THRESHOLD', 1.5),
-                    max_length=getattr(self.config, 'PARAGRAPH_MAX_LENGTH', 250),
-                    min_length=getattr(self.config, 'PARAGRAPH_MIN_LENGTH', 30),
-                )
-                # 同步更新 text 字段，确保从历史记录复制时也是分段文本
-                if result.paragraphs:
-                    joined = "\n\n".join(
-                        p.text for p in result.paragraphs if p.text.strip()
-                    )
-                    # 防止格式化后文本为空
-                    result.text = joined if joined.strip() else original_text
+                _apply_paragraph_formatting(result, self.config)
             except Exception as e:
                 logger.warning(f"段落格式化失败，跳过: {e}")
 
@@ -553,18 +551,7 @@ class TranscriptionService:
 
             result = task_info.result
             try:
-                original_text = result.text
-                result.paragraphs = format_paragraphs(
-                    result,
-                    silence_threshold=getattr(self.config, 'PARAGRAPH_SILENCE_THRESHOLD', 1.5),
-                    max_length=getattr(self.config, 'PARAGRAPH_MAX_LENGTH', 250),
-                    min_length=getattr(self.config, 'PARAGRAPH_MIN_LENGTH', 30),
-                )
-                if result.paragraphs:
-                    joined = "\n\n".join(
-                        p.text for p in result.paragraphs if p.text.strip()
-                    )
-                    result.text = joined if joined.strip() else original_text
+                _apply_paragraph_formatting(result, self.config)
                 count += 1
             except Exception as e:
                 logger.warning(f"任务 {task_id} 段落重新格式化失败: {e}")

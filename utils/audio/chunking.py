@@ -315,10 +315,6 @@ class AudioChunker:
                 logger.warning(f"清理音频块失败 {chunk_path}: {e}")
 
 
-# 创建全局实例
-audio_chunker = AudioChunker()
-
-
 def get_audio_chunker(
     chunk_duration: int = 300,
     overlap: int = 2,

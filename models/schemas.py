@@ -139,7 +139,7 @@ class TranscriptionSegment(BaseModel):
     @validator('end_time')
     def end_time_must_be_greater_than_start_time(cls, v, values):
         if 'start_time' in values and v < values['start_time']:
-            raise ValueError('end_time must be less than start_time')
+            raise ValueError('end_time must be >= start_time')
         return v
 
 

@@ -254,7 +254,7 @@ class VideoTranscriptionEngine:
             "请使用以下方法之一:\n"
             "1. 通过 Web 界面上传音视频文件\n"
             "2. 使用 POST /api/v1/transcribe/file API 上传文件\n"
-            "3. 使用命令行: python main.py transcribe <本地文件路径>\n\n"
+            "3. 使用命令行: python webmain.py transcribe <本地文件路径>\n\n"
             "如需URL下载功能，请:\n"
             "- 安装 yt-dlp: pip install yt-dlp\n"
             "- 在配置中设置 ENABLE_PLATFORM_DOWNLOAD=true"

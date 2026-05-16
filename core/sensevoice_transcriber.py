@@ -1141,9 +1141,8 @@ class SenseVoiceTranscriber:
                         logger.warning(f"标点符号后处理失败: {e}，使用原始文本")
 
             # 最终验证：确保我们有有效的文本
-            if not text or len(text.strip()) == 0:
+            if not text or not text.strip():
                 logger.warning(f"转录结果为空！音频文件: {audio_path}")
-                logger.warning(f"result 类型: {type(result)}, first_result 类型: {type(first_result) if 'first_result' in dir() else 'N/A'}")
                 logger.warning(f"segments 数量: {len(segments)}")
                 if segments:
                     logger.warning(f"前3个 segments: {[s.text[:50] for s in segments[:3]]}")

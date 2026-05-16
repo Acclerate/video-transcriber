@@ -76,10 +76,10 @@ brew install ffmpeg
 ### 4. 启动服务
 ```bash
 # 命令行模式
-python main.py --help
+python webmain.py --help
 
 # Web服务模式
-python main.py serve --host 0.0.0.0 --port 8000
+python webmain.py serve --host 0.0.0.0 --port 8000
 
 # 或使用uvicorn直接启动
 uvicorn api.apimain:app --host 0.0.0.0 --port 8000
@@ -146,7 +146,7 @@ cp .env.example .env
 pip install -r requirements.txt
 
 # 3. 启动开发服务器
-python main.py serve --reload
+python webmain.py serve --reload
 
 # 4. 访问服务
 # Web界面: http://localhost:8000

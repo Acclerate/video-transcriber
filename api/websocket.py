@@ -14,7 +14,7 @@ from models.schemas import (
     WSMessage, WSProgressMessage, WSResultMessage, WSErrorMessage,
     WSMessageType, TranscribeRequest, ProcessOptions
 )
-from core import transcription_engine
+from services import TranscriptionService
 from utils import validate_url
 
 
@@ -259,11 +259,9 @@ async def handle_transcribe_request(websocket: WebSocket, data: dict):
             data={"message": "开始处理媒体文件..."}
         ))
 
-        # 执行转录
-        result = await transcription_engine.process_video_url(
-            url=url,
-            options=options,
-            progress_callback=progress_callback
+        # URL 下载转录功能尚未实现
+        raise NotImplementedError(
+            "URL下载转录功能暂未启用，请通过 Web 界面上传本地文件"
         )
 
         # 发送结果

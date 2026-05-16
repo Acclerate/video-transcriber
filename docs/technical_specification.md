@@ -295,7 +295,7 @@ model.to(device)
 pip install -r requirements.txt
 
 # 启动 API 服务
-python main.py serve
+python webmain.py serve
 
 # 或使用 uvicorn
 uvicorn api.apimain:app --host 0.0.0.0 --port 8665

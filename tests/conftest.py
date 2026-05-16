@@ -79,38 +79,19 @@ def sample_transcription_result(sample_transcription_segments) -> TranscriptionR
 
 @pytest.fixture
 def mock_speech_transcriber():
-    """模拟语音转录器"""
+    """模拟 SenseVoice 转录器"""
     transcriber = Mock()
     transcriber.model_name = TranscriptionModel.SENSEVOICE_SMALL
     transcriber.device = "cpu"
     transcriber.load_model = AsyncMock()
     transcriber.transcribe_audio = AsyncMock()
-    transcriber.format_output = Mock()
+    transcriber.unload_model = AsyncMock()
     transcriber.get_model_info = Mock(return_value={
-        "name": "small",
+        "name": "sensevoice-small",
         "device": "cpu",
         "loaded": True
     })
     return transcriber
-
-
-@pytest.fixture
-def mock_whisper_model():
-    """模拟语音识别模型 (已弃用 Whisper)"""
-    model = Mock()
-    model.transcribe = Mock(return_value={
-        "text": "这是测试转录文本",
-        "language": "zh",
-        "segments": [
-            {
-                "start": 0.0,
-                "end": 5.0,
-                "text": "这是测试转录文本",
-                "avg_logprob": -0.5
-            }
-        ]
-    })
-    return model
 
 
 @pytest.fixture

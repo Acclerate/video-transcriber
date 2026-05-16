@@ -119,16 +119,16 @@ pip install funasr modelscope
 4. **下载 SenseVoice 模型**
 ```bash
 # 从 ModelScope（阿里云）下载 SenseVoice 模型
-python main.py download-model sensevoice-small
+python webmain.py download-model sensevoice-small
 
 # 查看所有可用命令
-python main.py --help
+python webmain.py --help
 ```
 
 5. **启动服务**
 ```bash
 # 启动Web服务
-python main.py serve
+python webmain.py serve
 
 # 访问 http://localhost:8665
 ```
@@ -148,10 +148,10 @@ cd D:\privategit\github\video-transcriber
 pip install funasr modelscope
 
 # 第三步：下载 SenseVoice 模型
-python main.py download-model sensevoice-small
+python webmain.py download-model sensevoice-small
 
 # 第四步：启动服务
-python main.py serve
+python webmain.py serve
 ```
 
 ## 📖 使用方法
@@ -160,7 +160,7 @@ python main.py serve
 
 1. 启动服务:
 ```bash
-python main.py serve
+python webmain.py serve
 ```
 
 2. 访问 `http://localhost:8665`
@@ -213,33 +213,33 @@ response = requests.post("http://localhost:8665/api/v1/transcribe/batch", files=
 
 ```bash
 # 基础转录（视频）
-python main.py transcribe /path/to/video.mp4
+python webmain.py transcribe /path/to/video.mp4
 
 # 直接转录音频文件（m4a、mp3、wav、flac 等）
-python main.py transcribe /path/to/recording.m4a
-python main.py transcribe /path/to/podcast.mp3
-python main.py transcribe /path/to/interview.wav
+python webmain.py transcribe /path/to/recording.m4a
+python webmain.py transcribe /path/to/podcast.mp3
+python webmain.py transcribe /path/to/interview.wav
 
 # 指定模型
-python main.py transcribe /path/to/video.mp4 --model sensevoice-small
+python webmain.py transcribe /path/to/video.mp4 --model sensevoice-small
 
 # 指定语言
-python main.py transcribe /path/to/recording.m4a --language zh
+python webmain.py transcribe /path/to/recording.m4a --language zh
 
 # 包含时间戳
-python main.py transcribe /path/to/video.mp4 --timestamps
+python webmain.py transcribe /path/to/video.mp4 --timestamps
 
 # 批量处理（文件列表可混合视频和音频路径）
-python main.py batch file_list.txt
+python webmain.py batch file_list.txt
 
 # 指定输出格式 (txt/json/srt/vtt)
-python main.py transcribe /path/to/video.mp4 --format srt
+python webmain.py transcribe /path/to/video.mp4 --format srt
 
 # 查看系统信息
-python main.py info
+python webmain.py info
 
 # 查看可用模型
-python main.py models
+python webmain.py models
 ```
 
 ## 🛠️ 配置选项
@@ -535,7 +535,7 @@ curl -X POST "http://localhost:8665/api/v1/transcribe/file" \
 DEFAULT_LANGUAGE=zh
 
 # 方法3: 命令行指定
-python main.py transcribe video.mp4 --language zh
+python webmain.py transcribe video.mp4 --language zh
 ```
 
 #### 3. 长音频卡顿或重复

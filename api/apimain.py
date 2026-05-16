@@ -26,11 +26,8 @@ from config import settings
 from models.schemas import APIResponse
 from utils.logging import setup_default_logger
 from utils.ffmpeg import check_ffmpeg_installed, configure_pydub_ffmpeg, get_ffmpeg_help_message
-from .routes import health_router, transcribe_router
+from .routes import health_router, transcribe_router, task_router, system_router
 from .websocket import websocket_endpoint, ws_manager
-
-# 导入核心引擎
-from core.engine import transcription_engine
 
 
 # 速率限制器
@@ -109,6 +106,8 @@ app.add_middleware(
 # 注册路由
 app.include_router(health_router)
 app.include_router(transcribe_router)
+app.include_router(task_router)
+app.include_router(system_router)
 
 # 静态文件服务
 if os.path.exists("web"):
@@ -163,122 +162,6 @@ async def root():
             </body>
         </html>
         """)
-
-
-# ============================================================
-# 任务状态查询端点 (transcribe_router 中没有的)
-# ============================================================
-
-@app.get("/api/v1/status/{task_id}")
-async def get_task_status(task_id: str):
-    """查询任务状态"""
-    try:
-        from models.schemas import TaskStatusResponse
-
-        task_info = transcription_engine.get_task_status(task_id)
-
-        if not task_info:
-            raise HTTPException(status_code=404, detail="任务不存在")
-
-        return TaskStatusResponse(
-            code=200,
-            message="查询成功",
-            data=task_info
-        )
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"查询任务状态失败: {e}")
-        raise HTTPException(status_code=500, detail="查询失败")
-
-
-@app.get("/api/v1/batch-status/{batch_id}")
-async def get_batch_status(batch_id: str):
-    """查询批量任务状态"""
-    try:
-        batch_info = transcription_engine.get_batch_status(batch_id)
-
-        if not batch_info:
-            raise HTTPException(status_code=404, detail="批量任务不存在")
-
-        return APIResponse(
-            code=200,
-            message="查询成功",
-            data=batch_info.model_dump()
-        )
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"查询批量任务状态失败: {e}")
-        raise HTTPException(status_code=500, detail="查询失败")
-
-
-# ============================================================
-# 模型和系统信息端点
-# ============================================================
-
-@app.get("/api/v1/models")
-async def get_available_models():
-    """获取可用的语音识别模型"""
-    try:
-        from models.schemas import TranscriptionModel
-        from config import settings
-
-        # SenseVoice 模型信息
-        models_info = {
-            "sensevoice-small": {
-                "name": "SenseVoice Small",
-                "size": "244MB",
-                "description": "多语言语音识别，中文优化",
-                "languages": ["中文", "英文", "日语", "韩语", "粤语", "法语", "西班牙语"],
-                "speed": "4x",
-                "accuracy": "★★★★☆"
-            }
-        }
-
-        current_model = {
-            "name": models_info.get(settings.DEFAULT_MODEL, {}).get("name", settings.DEFAULT_MODEL),
-            "value": settings.DEFAULT_MODEL
-        }
-
-        return APIResponse(
-            code=200,
-            message="查询成功",
-            data={
-                "available_models": models_info,
-                "current_model": current_model
-            }
-        )
-
-    except Exception as e:
-        logger.error(f"查询模型信息失败: {e}")
-        raise HTTPException(status_code=500, detail="查询失败")
-
-
-@app.post("/api/v1/cleanup")
-async def cleanup_system():
-    """清理系统"""
-    try:
-        # 清理任务记录
-        cleaned_tasks = transcription_engine.cleanup_old_tasks(24)
-
-        # 清理临时文件
-        cleaned_files = await transcription_engine.cleanup_temp_files()
-
-        return APIResponse(
-            code=200,
-            message="清理完成",
-            data={
-                "cleaned_tasks": cleaned_tasks,
-                "cleaned_files": cleaned_files
-            }
-        )
-
-    except Exception as e:
-        logger.error(f"系统清理失败: {e}")
-        raise HTTPException(status_code=500, detail="清理失败")
 
 
 # ============================================================
