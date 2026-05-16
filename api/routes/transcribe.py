@@ -102,7 +102,9 @@ async def transcribe_file(
     model: str = Form(default=settings.DEFAULT_MODEL),
     language: str = Form(default="auto"),
     format: str = Form(default="txt"),
+    output_format: str = Form(default=None),
     timestamps: bool = Form(default=False),
+    with_timestamps: bool = Form(default=None),
     timestamp_mode: str = Form(default="none"),
     service: TranscriptionService = Depends(get_transcription_service),
     file_service: FileService = Depends(get_file_service)
@@ -138,6 +140,10 @@ async def transcribe_file(
 
         # 准备处理选项
         normalized_model = normalize_model_name(model)
+        # 兼容前端字段名：output_format 优先于 format
+        actual_format = output_format or format
+        # 兼容前端字段名：with_timestamps 优先于 timestamps
+        actual_timestamps = with_timestamps if with_timestamps is not None else timestamps
         # 解析 timestamp_mode，验证合法性
         try:
             ts_mode = TimestampMode(timestamp_mode)
@@ -147,9 +153,9 @@ async def transcribe_file(
         options = ProcessOptions(
             model=TranscriptionModel(normalized_model),
             language=Language(language),
-            with_timestamps=timestamps,
+            with_timestamps=actual_timestamps,
             timestamp_mode=ts_mode,
-            output_format=OutputFormat(format),
+            output_format=OutputFormat(actual_format),
             enable_gpu=settings.ENABLE_GPU,
             temperature=settings.DEFAULT_TEMPERATURE
         )

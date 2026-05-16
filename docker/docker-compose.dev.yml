@@ -22,7 +22,7 @@ services:
       - python
       - -m
       - uvicorn
-      - api.main:app
+      - api.apimain:app
       - --host
       - "0.0.0.0"
       - --port

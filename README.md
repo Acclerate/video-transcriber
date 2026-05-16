@@ -173,7 +173,7 @@ python main.py serve
 
 ```bash
 # 启动API服务
-uvicorn api.main:app --host 0.0.0.0 --port 8665
+uvicorn api.apimain:app --host 0.0.0.0 --port 8665
 
 # 访问API文档
 # http://localhost:8665/docs

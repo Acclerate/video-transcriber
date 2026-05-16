@@ -298,7 +298,7 @@ pip install -r requirements.txt
 python main.py serve
 
 # 或使用 uvicorn
-uvicorn api.main:app --host 0.0.0.0 --port 8665
+uvicorn api.apimain:app --host 0.0.0.0 --port 8665
 ```
 
 ### 8.3 Docker 部署

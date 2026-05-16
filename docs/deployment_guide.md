@@ -82,7 +82,7 @@ python main.py --help
 python main.py serve --host 0.0.0.0 --port 8000
 
 # 或使用uvicorn直接启动
-uvicorn api.main:app --host 0.0.0.0 --port 8000
+uvicorn api.apimain:app --host 0.0.0.0 --port 8000
 ```
 
 ## ⚙️ 环境配置

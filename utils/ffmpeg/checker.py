@@ -3,6 +3,7 @@ FFmpeg 检测模块
 提供 FFmpeg 安装检测和版本获取功能
 """
 
+import os
 import shutil
 import subprocess
 import platform
@@ -55,7 +56,8 @@ def check_ffmpeg_installed() -> bool:
 def configure_pydub_ffmpeg() -> None:
     """
     将 FFmpeg 的完整路径设置给 pydub，
-    避免运行时因 PATH 环境变量差异找不到 ffmpeg。
+    并将 ffmpeg 目录添加到 PATH 环境变量，
+    确保 FunASR/torchaudio 等库也能找到 ffmpeg。
     """
     try:
         from pydub.audio_segment import AudioSegment
@@ -64,6 +66,13 @@ def configure_pydub_ffmpeg() -> None:
         if ffmpeg_path:
             AudioSegment.converter = ffmpeg_path
             logger.debug(f"pydub converter 设置为: {ffmpeg_path}")
+
+            # 将 ffmpeg 所在目录添加到 PATH，使 FunASR/torchaudio 等库能通过 subprocess 找到 ffmpeg
+            ffmpeg_dir = str(Path(ffmpeg_path).parent)
+            current_path = os.environ.get("PATH", "")
+            if ffmpeg_dir not in current_path:
+                os.environ["PATH"] = ffmpeg_dir + os.pathsep + current_path
+                logger.info(f"已将 ffmpeg 目录添加到 PATH: {ffmpeg_dir}")
 
         ffprobe_path = get_ffprobe_path()
         if ffprobe_path and hasattr(AudioSegment, 'ffprobe'):

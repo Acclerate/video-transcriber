@@ -1046,6 +1046,10 @@ class SenseVoiceTranscriber:
                                         except (ValueError, TypeError):
                                             pass
 
+                                    # 确保 end_time >= start_time
+                                    if end_time < start_time:
+                                        end_time = start_time + 0.001
+
                                     # 获取语言
                                     item_lang = item.get("language", detected_lang)
                                     if item_lang:
@@ -1138,7 +1142,11 @@ class SenseVoiceTranscriber:
 
             # 最终验证：确保我们有有效的文本
             if not text or len(text.strip()) == 0:
-                logger.warning("转录结果为空，返回空结果")
+                logger.warning(f"转录结果为空！音频文件: {audio_path}")
+                logger.warning(f"result 类型: {type(result)}, first_result 类型: {type(first_result) if 'first_result' in dir() else 'N/A'}")
+                logger.warning(f"segments 数量: {len(segments)}")
+                if segments:
+                    logger.warning(f"前3个 segments: {[s.text[:50] for s in segments[:3]]}")
                 return TranscriptionResult(
                     text="",
                     language=detected_lang,

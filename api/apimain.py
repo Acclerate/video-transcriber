@@ -4,6 +4,8 @@ Video Transcriber Web API
 """
 
 import os
+os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
+
 import asyncio
 from contextlib import asynccontextmanager
 
@@ -337,7 +339,7 @@ async def internal_error_handler(request: Request, exc):
 
 if __name__ == "__main__":
     uvicorn.run(
-        "api.main:app",
+        "api.apimain:app",
         host=os.getenv("HOST", "0.0.0.0"),
         port=int(os.getenv("PORT", 8665)),
         reload=os.getenv("DEBUG", "false").lower() == "true",

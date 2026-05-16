@@ -27,7 +27,7 @@ Video Transcriber 是一个本地视频文件转文本工具，支持上传本�
 
 ### 2. Web服务接口 ✅
 
-- **FastAPI Web服务** (`api/main.py`)
+- **FastAPI Web服务** (`api/apimain.py`)
   - RESTful API 接口
   - 文件上传转录
   - 批量处理支持
@@ -45,7 +45,7 @@ Video Transcriber 是一个本地视频文件转文本工具，支持上传本�
 
 ### 3. 命令行工具 ✅
 
-- **CLI命令** (`main.py`)
+- **CLI命令** (`webmain.py`)
   - 单个视频转录
   - 批量处理支持
   - 系统信息查看
@@ -106,10 +106,10 @@ pip install -r requirements.txt
 ### 2. 启动服务
 ```bash
 # 方式1: 命令行使用
-python main.py transcribe "/path/to/video.mp4"
+python webmain.py transcribe "/path/to/video.mp4"
 
 # 方式2: Web服务
-python main.py serve
+python webmain.py serve
 # 访问 http://localhost:8000
 
 # 方式3: Docker部署
@@ -119,10 +119,10 @@ docker-compose -f docker/docker-compose.yml up -d
 ### 3. 使用示例
 ```bash
 # 单个视频转录
-python main.py transcribe "/path/to/video.mp4" --model small
+python webmain.py transcribe "/path/to/video.mp4" --model small
 
 # 批量转录
-python main.py batch file_list.txt --format srt
+python webmain.py batch file_list.txt --format srt
 ```
 
 ## 📚 文档资源
@@ -159,7 +159,7 @@ Video Transcriber 项目现已完成！
 ### 立即开始使用
 ```bash
 # 快速启动
-python main.py serve
+python webmain.py serve
 
 # 访问 Web 界面
 open http://localhost:8000

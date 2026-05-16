@@ -135,7 +135,7 @@ def sample_video_file(temp_dir) -> Path:
 def api_client():
     """API客户端夹具"""
     from fastapi.testclient import TestClient
-    from api.main import app
+    from api.apimain import app
 
     return TestClient(app)
 

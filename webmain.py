@@ -5,6 +5,8 @@ Video Transcriber - 音视频转文本工具
 """
 
 import os
+os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
+
 import sys
 import asyncio
 import argparse
@@ -505,7 +507,7 @@ def serve(host, port, reload):
         console.print(f"文档: http://{host}:{port}/docs")
 
         uvicorn.run(
-            "api.main:app",
+            "api.apimain:app",
             host=host,
             port=port,
             reload=reload,

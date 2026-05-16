@@ -7,7 +7,7 @@ import json
 from unittest.mock import patch, AsyncMock
 from fastapi.testclient import TestClient
 
-from api.main import app
+from api.apimain import app
 from models.schemas import TranscriptionModel, Language
 
 

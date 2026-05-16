@@ -394,6 +394,7 @@ class TranscriptionService:
         # 段落格式化
         if getattr(self.config, 'ENABLE_PARAGRAPH_FORMATTING', True):
             try:
+                original_text = result.text
                 result.paragraphs = format_paragraphs(
                     result,
                     silence_threshold=getattr(self.config, 'PARAGRAPH_SILENCE_THRESHOLD', 1.5),
@@ -402,9 +403,11 @@ class TranscriptionService:
                 )
                 # 同步更新 text 字段，确保从历史记录复制时也是分段文本
                 if result.paragraphs:
-                    result.text = "\n\n".join(
+                    joined = "\n\n".join(
                         p.text for p in result.paragraphs if p.text.strip()
                     )
+                    # 防止格式化后文本为空
+                    result.text = joined if joined.strip() else original_text
             except Exception as e:
                 logger.warning(f"段落格式化失败，跳过: {e}")
 
@@ -550,6 +553,7 @@ class TranscriptionService:
 
             result = task_info.result
             try:
+                original_text = result.text
                 result.paragraphs = format_paragraphs(
                     result,
                     silence_threshold=getattr(self.config, 'PARAGRAPH_SILENCE_THRESHOLD', 1.5),
@@ -557,9 +561,10 @@ class TranscriptionService:
                     min_length=getattr(self.config, 'PARAGRAPH_MIN_LENGTH', 30),
                 )
                 if result.paragraphs:
-                    result.text = "\n\n".join(
+                    joined = "\n\n".join(
                         p.text for p in result.paragraphs if p.text.strip()
                     )
+                    result.text = joined if joined.strip() else original_text
                 count += 1
             except Exception as e:
                 logger.warning(f"任务 {task_id} 段落重新格式化失败: {e}")

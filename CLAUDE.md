@@ -12,19 +12,19 @@ Video Transcriber — a video-to-text transcription service using Alibaba's Sens
 
 ```bash
 # Run CLI
-python main.py transcribe <file> --language zh --format srt --timestamps
-python main.py batch <file_list.txt> --max-concurrent 2
+python webmain.py transcribe <file> --language zh --format srt --timestamps
+python webmain.py batch <file_list.txt> --max-concurrent 2
 
 # Start web API server
-python main.py serve --port 8665
+python webmain.py serve --port 8665
 # Or directly:
-uvicorn api.main:app --host 0.0.0.0 --port 8665 --reload
+uvicorn api.apimain:app --host 0.0.0.0 --port 8665 --reload
 
 # Download model
-python main.py download-model sensevoice-small
+python webmain.py download-model sensevoice-small
 
 # System check
-python main.py check
+python webmain.py check
 
 # Tests
 pytest                                          # all tests with coverage
@@ -42,7 +42,7 @@ black . && isort . && flake8 . && mypy .
 Layered service architecture with clear separation:
 
 ```
-CLI (main.py, Click) / Web API (api/main.py, FastAPI) / WebSocket
+CLI (webmain.py, Click) / Web API (api/apimain.py, FastAPI) / WebSocket
         ↓
 Service Layer: services/transcription_service.py → file_service.py, task_service.py
         ↓
@@ -57,8 +57,8 @@ Config/Data: config/settings.py (pydantic-settings), models/schemas.py (Pydantic
 
 ### Key files
 
-- `main.py` — CLI entry point (Click commands: transcribe, batch, serve, check, download-model, info, cleanup, models)
-- `api/main.py` — FastAPI app; routes in `api/routes/` (health, transcribe); WebSocket in `api/websocket.py`
+- `webmain.py` — CLI entry point (Click commands: transcribe, batch, serve, check, download-model, info, cleanup, models)
+- `api/apimain.py` — FastAPI app; routes in `api/routes/` (health, transcribe); WebSocket in `api/websocket.py`
 - `core/engine.py` — `VideoTranscriptionEngine` orchestrates the full pipeline
 - `core/sensevoice_transcriber.py` — `SenseVoiceTranscriber` wraps FunASR/SenseVoice model
 - `core/downloader.py` — `AudioExtractor` extracts audio via FFmpeg
