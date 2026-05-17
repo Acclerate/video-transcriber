@@ -51,11 +51,11 @@ BOOTSTRAP_ICONS_FONT_URL = (
 )
 
 MANROPE_FONT_URLS = {
-    400: "https://fonts.gstatic.com/s/manrope/v15/xn7gYHE41ni1AdIRggexSvfedN4.woff2",
-    500: "https://fonts.gstatic.com/s/manrope/v15/xn7gYHE41ni1AdIRggOxSvfedN4.woff2",
-    600: "https://fonts.gstatic.com/s/manrope/v15/xn7gYHE41ni1AdIRggSvxSvfedN4.woff2",
-    700: "https://fonts.gstatic.com/s/manrope/v15/xn7gYHE41ni1AdIRggWgxSvfedN4.woff2",
-    800: "https://fonts.gstatic.com/s/manrope/v15/xn7gYHE41ni1AdIRggewSvfedN4.woff2",
+    400: "https://fonts.gstatic.com/s/manrope/v20/xn7_YHE41ni1AdIRqAuZuw1Bx9mbZk79FO_F.ttf",
+    500: "https://fonts.gstatic.com/s/manrope/v20/xn7_YHE41ni1AdIRqAuZuw1Bx9mbZk7PFO_F.ttf",
+    600: "https://fonts.gstatic.com/s/manrope/v20/xn7_YHE41ni1AdIRqAuZuw1Bx9mbZk4jE-_F.ttf",
+    700: "https://fonts.gstatic.com/s/manrope/v20/xn7_YHE41ni1AdIRqAuZuw1Bx9mbZk4aE-_F.ttf",
+    800: "https://fonts.gstatic.com/s/manrope/v20/xn7_YHE41ni1AdIRqAuZuw1Bx9mbZk59E-_F.ttf",
 }
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -74,8 +74,8 @@ SKIP_PACKAGES = {
 # 工具函数
 # ============================================================
 
-def download_file(url: str, dest: Path, desc: str = "") -> None:
-    """下载文件，带全局缓存避免重复下载"""
+def download_file(url: str, dest: Path, desc: str = "", retries: int = 3) -> None:
+    """下载文件，带全局缓存和重试"""
     if dest.exists():
         print(f"  [跳过] 已存在: {dest.name}")
         return
@@ -99,8 +99,19 @@ def download_file(url: str, dest: Path, desc: str = "") -> None:
             sys.stdout.write(f"\r  进度: {pct:.1f}% ")
             sys.stdout.flush()
 
-    urllib.request.urlretrieve(url, str(dest), reporthook=_reporthook)
-    sys.stdout.write("\r  进度: 100%   \n")
+    for attempt in range(1, retries + 1):
+        try:
+            urllib.request.urlretrieve(url, str(dest), reporthook=_reporthook)
+            sys.stdout.write("\r  进度: 100%   \n")
+            break
+        except Exception as e:
+            if dest.exists():
+                dest.unlink()
+            if attempt < retries:
+                print(f"\n  重试 ({attempt}/{retries}) ...")
+                import time; time.sleep(2 * attempt)
+            else:
+                raise RuntimeError(f"下载失败 ({retries}次): {label} - {e}") from e
 
     # 存入缓存
     cache_file.parent.mkdir(parents=True, exist_ok=True)
@@ -355,7 +366,7 @@ def bundle_web_assets(app_dir: Path) -> None:
 
     # 下载 Manrope 字体
     for weight, url in MANROPE_FONT_URLS.items():
-        download_file(url, fonts_dir / f"manrope-{weight}.woff2", f"Manrope {weight}")
+        download_file(url, fonts_dir / f"manrope-{weight}.ttf", f"Manrope {weight}")
 
     # 生成本地字体 CSS（Manrope 本地 + Noto Sans SC 系统 fallback）
     fonts_css = fonts_dir / "fonts.css"
@@ -364,7 +375,7 @@ def bundle_web_assets(app_dir: Path) -> None:
         for weight in MANROPE_FONT_URLS:
             lines.append(
                 f"@font-face {{ font-family: 'Manrope'; font-weight: {weight}; "
-                f"font-display: swap; src: url('./manrope-{weight}.woff2') format('woff2'); }}"
+                f"font-display: swap; src: url('./manrope-{weight}.ttf') format('truetype'); }}"
             )
         fonts_css.write_text("\n".join(lines), encoding="utf-8")
 
@@ -634,7 +645,7 @@ def main():
     parser.add_argument("--skip-compress", action="store_true",
                         help="跳过压缩")
     parser.add_argument("--skip-deps", action="store_true",
-                        help="跳过 Python 环境和依赖安装（仅更新源码/脚本）")
+                        help="跳过 Python 环境和依赖安装（仍会补齐 FFmpeg/模型/资源）")
     args = parser.parse_args()
 
     target = args.platform
@@ -656,7 +667,7 @@ def main():
     if cross_build:
         print(f"    ** 交叉构建模式 **")
     if args.skip_deps:
-        print(f"    ** 跳过依赖安装 (仅更新源码/脚本) **")
+        print(f"    ** 跳过 Python 环境和依赖安装 **")
     print(f"    输出目录: {output_dir}")
     print(f"  ============================================")
     print(f"")
@@ -679,8 +690,8 @@ def main():
     _step(1, "创建目录结构", lambda: None)
 
     if args.skip_deps:
-        # 快速模式：跳过 Step 2-4，仅更新源码和脚本
-        print("\n[2-4] [跳过] Python/FFmpeg 安装 (--skip-deps)")
+        # 快速模式：跳过 Python 环境和依赖安装，仍补齐 FFmpeg/模型等运行资产
+        print("\n[2-3] [跳过] Python 环境和依赖安装 (--skip-deps)")
     else:
         # Step 2
         if target == "windows":
@@ -692,11 +703,11 @@ def main():
         _step(3, "安装 Python 依赖 (CPU PyTorch)", install_requirements,
               dirs["python"], target, cross_build)
 
-        # Step 4
-        if target == "windows":
-            _step(4, "下载 FFmpeg", download_ffmpeg_windows, dirs["ffmpeg"])
-        else:
-            _step(4, "下载 FFmpeg", download_ffmpeg_linux, dirs["ffmpeg"])
+    # Step 4
+    if target == "windows":
+        _step(4, "下载 FFmpeg", download_ffmpeg_windows, dirs["ffmpeg"])
+    else:
+        _step(4, "下载 FFmpeg", download_ffmpeg_linux, dirs["ffmpeg"])
 
     # Step 5
     _step(5, "复制项目源码", copy_app_source, dirs["app"])
@@ -705,12 +716,12 @@ def main():
     _step(6, "打包离线 Web 资源", bundle_web_assets, dirs["app"])
 
     # Step 7
-    if not args.skip_model and not args.skip_deps:
+    if not args.skip_model:
         _step(7, "下载 SenseVoice 模型", download_model,
               dirs["models_cache"], dirs["app"], dirs["python"],
               target, cross_build)
     else:
-        print("\n[7] [跳过] 模型下载 (--skip-model 或 --skip-deps)")
+        print("\n[7] [跳过] 模型下载 (--skip-model)")
 
     # Step 8
     _step(8, "生成启动脚本和配置", create_launchers, output_dir, target, cross_build)

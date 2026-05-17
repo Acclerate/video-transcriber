@@ -194,6 +194,7 @@ class AudioChunker:
         merged_text = []
         merged_segments = []
         merged_char_timestamps = []
+        merged_vad_segments = []
         total_time = 0.0
         detected_language = "unknown"
         all_confidences = []
@@ -208,6 +209,7 @@ class AudioChunker:
             start_time = chunk_result.get("start_time", 0.0)
             end_time = chunk_result.get("end_time", 0.0)
             chunk_char_ts = chunk_result.get("char_timestamps", [])
+            chunk_vad_segs = chunk_result.get("vad_segments", [])
 
             # 使用第一个块的语言作为总体语言
             if i == 0 and chunk_language != "unknown":
@@ -224,6 +226,8 @@ class AudioChunker:
                     merged_segments.append(seg)
                 # 逐字时间戳：直接添加
                 merged_char_timestamps.extend(chunk_char_ts)
+                # VAD 分段：直接添加
+                merged_vad_segments.extend(chunk_vad_segs)
             else:
                 # 对于后续块，需要处理重叠
                 # 调整时间戳
@@ -241,6 +245,13 @@ class AudioChunker:
                             "start": round(ts["start"], 3),
                             "end": round(ts["end"], 3)
                         })
+
+                # VAD 分段：去除与已合并部分重叠的分段
+                if chunk_vad_segs:
+                    for vad_seg in chunk_vad_segs:
+                        if merged_vad_segments and vad_seg["start_time"] < merged_vad_segments[-1]["end_time"]:
+                            continue
+                        merged_vad_segments.append(vad_seg)
 
                 # 添加非重叠部分的文本
                 # 如果有 segments，从 segments 中提取
@@ -288,7 +299,8 @@ class AudioChunker:
             "language": detected_language,
             "confidence": avg_confidence,
             "processing_time": total_time,
-            "char_timestamps": merged_char_timestamps
+            "char_timestamps": merged_char_timestamps,
+            "vad_segments": merged_vad_segments
         }
 
         logger.info(f"合并完成: 总文本长度 {len(final_text)} 字符")

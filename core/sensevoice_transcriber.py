@@ -1129,6 +1129,9 @@ class SenseVoiceTranscriber:
             processing_time = time.time() - start_time
             logger.info(f"转录完成，文本长度: {len(text)}, 片段数: {len(segments)}")
 
+            # 保存 VAD 分段信息（SenseVoice 的 merge_vad 分段，包含准确的人声起止时间）
+            vad_segments = list(segments) if segments else []
+
             # 文本后处理
             if text:
                 # 步骤1: 清理特殊标记
@@ -1184,9 +1187,14 @@ class SenseVoiceTranscriber:
                     progress_callback(95)
 
                 if actual_mode in ("char", "sentence") and char_timestamps:
-                    segments = self._build_segments_by_punctuation_then_align(
-                        raw_text, punctuated_text, char_timestamps
-                    )
+                    if vad_segments:
+                        segments = self._build_segments_vad_first(
+                            vad_segments, char_timestamps, punctuated_text, raw_text
+                        )
+                    else:
+                        segments = self._build_segments_by_punctuation_then_align(
+                            raw_text, punctuated_text, char_timestamps
+                        )
 
                 # 最终文本使用原始文本（不含标点）
                 text = raw_text
@@ -1386,6 +1394,9 @@ class SenseVoiceTranscriber:
             # 提取文本
             text = self._extract_text_from_result(result)
 
+            # 提取 VAD 分段（SenseVoice merge_vad 产生的人声分段）
+            chunk_vad_segments = self._extract_vad_segments_from_result(result, chunk_start)
+
             # 提取或生成逐字时间戳
             char_ts_list = []
             use_fa = FA_AVAILABLE and timestamp_mode in ("char", "sentence")
@@ -1419,6 +1430,7 @@ class SenseVoiceTranscriber:
             return {
                 "text": text,
                 "segments": [],
+                "vad_segments": chunk_vad_segments,
                 "language": language,
                 "confidence": 0.95,
                 "processing_time": processing_time,
@@ -1575,6 +1587,9 @@ class SenseVoiceTranscriber:
             # 提取文本
             text = self._extract_text_from_result(result)
 
+            # 提取 VAD 分段（SenseVoice merge_vad 产生的人声分段）
+            chunk_vad_segments = self._extract_vad_segments_from_result(result, chunk_start)
+
             # 提取逐字时间戳（如果启用）
             char_ts_list = []
             if timestamp_mode in ("char", "sentence"):
@@ -1583,6 +1598,7 @@ class SenseVoiceTranscriber:
             return {
                 "text": text,
                 "segments": [],
+                "vad_segments": chunk_vad_segments,
                 "language": language,
                 "confidence": 0.95,
                 "processing_time": processing_time,
@@ -1716,6 +1732,290 @@ class SenseVoiceTranscriber:
         except Exception as e:
             logger.warning(f"FA 强制对齐异常: {e}，回退到 SenseVoice 时间戳")
             return None, []
+
+    def _build_segments_vad_first(
+        self,
+        vad_segments: List[TranscriptionSegment],
+        char_timestamps: List[CharTimestamp],
+        punctuated_text: str,
+        raw_text: str,
+        max_chars: int = 25,
+    ) -> List[TranscriptionSegment]:
+        """
+        VAD 分段优先的字幕构建策略。
+
+        保留 SenseVoice VAD 检测到的人声起止边界作为字幕时间，
+        仅当 VAD 分段文本过长时在标点处切分。纯中文优化。
+
+        Args:
+            vad_segments: SenseVoice VAD 分段（含准确的 start_time/end_time）
+            char_timestamps: FA 或 SenseVoice 的逐字时间戳
+            punctuated_text: 带标点文本（仅用于确定切分位置）
+            raw_text: 原始文本（不含标点）
+            max_chars: 单条字幕最大字符数，超过则切分
+        """
+        if not vad_segments:
+            return []
+
+        # 构建全文字符→时间映射
+        char_time_map = self._build_raw_char_time_map(char_timestamps, raw_text)
+
+        # 为每个 VAD 分段在 punctuated_text 中定位对应的标点位置
+        # 通过 VAD 分段文本在 raw_text 中的位置来定位
+        raw_pos = 0
+        punct_to_raw = self._build_punct_to_raw_map(punctuated_text, raw_text)
+
+        result_segments: List[TranscriptionSegment] = []
+
+        for vad_seg in vad_segments:
+            seg_text = vad_seg.text.strip()
+            if not seg_text:
+                continue
+
+            # 在 raw_text 中找到该 VAD 分段文本的位置
+            seg_start_in_raw = raw_text.find(seg_text, raw_pos)
+            if seg_start_in_raw < 0:
+                seg_start_in_raw = raw_pos
+            seg_end_in_raw = seg_start_in_raw + len(seg_text)
+            raw_pos = seg_end_in_raw
+
+            # 短句：直接使用 VAD 分段的时间边界
+            if len(seg_text) <= max_chars:
+                result_segments.append(TranscriptionSegment(
+                    start_time=vad_seg.start_time,
+                    end_time=vad_seg.end_time,
+                    text=seg_text,
+                    confidence=vad_seg.confidence,
+                    char_timestamps=getattr(vad_seg, "char_timestamps", []),
+                ))
+                continue
+
+            # 长句：在标点处切分
+            sub_segments = self._split_vad_segment_at_punctuation(
+                seg_text, seg_start_in_raw, seg_end_in_raw,
+                vad_seg.start_time, vad_seg.end_time,
+                punctuated_text, punct_to_raw, char_time_map,
+                max_chars,
+            )
+            result_segments.extend(sub_segments)
+
+        logger.info(f"VAD-first 分段: {len(vad_segments)} 个 VAD 段 → {len(result_segments)} 条字幕")
+        return self._dedupe_and_fix_segment_timing(result_segments, subtitle_hold_seconds=0.0)
+
+    def _build_raw_char_time_map(
+        self,
+        char_timestamps: List[CharTimestamp],
+        raw_text: str,
+    ) -> List[Tuple[float, float]]:
+        """构建 raw_text 每个字符的时间映射 [(start, end), ...]"""
+        expanded_ts = self._expand_subtitle_char_timestamps([
+            ts for ts in char_timestamps if ts.word and ts.end >= ts.start
+        ])
+        if not expanded_ts:
+            return []
+
+        char_times: List[Tuple[float, float]] = []
+        for ts in expanded_ts:
+            n_chars = len(ts.word)
+            if n_chars == 1:
+                char_times.append((ts.start, ts.end))
+            else:
+                dur = (ts.end - ts.start) / n_chars
+                for i in range(n_chars):
+                    char_times.append((
+                        round(ts.start + dur * i, 3),
+                        round(ts.start + dur * (i + 1), 3),
+                    ))
+
+        # 填充不足的部分
+        while len(char_times) < len(raw_text):
+            if char_times:
+                last = char_times[-1]
+                char_times.append((last[1], last[1] + 0.1))
+            else:
+                char_times.append((0.0, 0.1))
+
+        return char_times
+
+    def _build_punct_to_raw_map(
+        self,
+        punctuated_text: str,
+        raw_text: str,
+    ) -> List[int]:
+        """建立 punctuated_text → raw_text 的位置映射"""
+        punct_to_raw: List[int] = []
+        raw_idx = 0
+        punctuation_chars = set("，。！？；、：,.!?;:")
+
+        for ch in punctuated_text:
+            if ch.isspace():
+                punct_to_raw.append(-1)
+                continue
+
+            if ch in punctuation_chars:
+                punct_to_raw.append(raw_idx)
+                continue
+
+            if raw_idx < len(raw_text) and ch == raw_text[raw_idx]:
+                punct_to_raw.append(raw_idx)
+                raw_idx += 1
+                continue
+
+            found_idx = -1
+            for ahead in range(1, 5):
+                if raw_idx + ahead < len(raw_text) and ch == raw_text[raw_idx + ahead]:
+                    found_idx = raw_idx + ahead
+                    break
+
+            if found_idx >= 0:
+                punct_to_raw.append(found_idx)
+                raw_idx = found_idx + 1
+            elif raw_idx < len(raw_text):
+                punct_to_raw.append(raw_idx)
+                raw_idx += 1
+            else:
+                punct_to_raw.append(-1)
+
+        return punct_to_raw
+
+    def _split_vad_segment_at_punctuation(
+        self,
+        seg_text: str,
+        seg_start_in_raw: int,
+        seg_end_in_raw: int,
+        vad_start: float,
+        vad_end: float,
+        punctuated_text: str,
+        punct_to_raw: List[int],
+        char_time_map: List[Tuple[float, float]],
+        max_chars: int,
+    ) -> List[TranscriptionSegment]:
+        """在标点位置切分过长的 VAD 分段"""
+        # 在 seg_text 范围内找到标点位置
+        sentence_ends = set("。！？!?")
+        clause_ends = set("，,；;：:")
+
+        # 收集该分段范围内的标点切分点（相对于 seg_text 的偏移）
+        split_offsets: List[int] = []
+
+        for punct_idx in range(len(punctuated_text)):
+            if punct_idx >= len(punct_to_raw):
+                break
+            raw_pos = punct_to_raw[punct_idx]
+            if raw_pos < 0:
+                continue
+            # 检查是否在当前分段范围内
+            if raw_pos < seg_start_in_raw:
+                continue
+            if raw_pos >= seg_end_in_raw:
+                break
+
+            ch = punctuated_text[punct_idx]
+            offset_in_seg = raw_pos - seg_start_in_raw
+
+            if ch in sentence_ends:
+                split_offsets.append(offset_in_seg)
+            elif ch in clause_ends:
+                # 逗号：当切分后两侧都不太短时才切
+                last_split = split_offsets[-1] if split_offsets else 0
+                left_len = offset_in_seg - last_split
+                right_len = len(seg_text) - offset_in_seg
+                if left_len >= 6 and right_len >= 6:
+                    split_offsets.append(offset_in_seg)
+
+        if not split_offsets:
+            # 无标点切分点，尝试在助词处切分
+            split_offsets = self._find_chinese_natural_breaks(seg_text, max_chars)
+
+        # 按切分点构建子分段
+        return self._create_sub_segments(
+            seg_text, split_offsets, vad_start, vad_end,
+            seg_start_in_raw, char_time_map,
+        )
+
+    def _find_chinese_natural_breaks(
+        self,
+        text: str,
+        max_chars: int,
+    ) -> List[int]:
+        """在中文文本中寻找自然断句点（助词、连词处）"""
+        breaks: List[int] = []
+        last_break = 0
+
+        for i, ch in enumerate(text):
+            if i - last_break < max_chars:
+                continue
+            # 距上次切分已超过 max_chars，寻找附近的断点
+            for j in range(i, min(i + 8, len(text))):
+                if text[j] in "的了呢吧啊吗着过地得":
+                    breaks.append(j + 1)  # 在助词后切分
+                    last_break = j + 1
+                    break
+            else:
+                # 没有找到助词，强制在当前位置切分
+                breaks.append(i)
+                last_break = i
+
+        return breaks
+
+    def _create_sub_segments(
+        self,
+        text: str,
+        split_offsets: List[int],
+        vad_start: float,
+        vad_end: float,
+        seg_start_in_raw: int,
+        char_time_map: List[Tuple[float, float]],
+    ) -> List[TranscriptionSegment]:
+        """根据切分点创建子分段"""
+        if not split_offsets:
+            return [TranscriptionSegment(
+                start_time=vad_start,
+                end_time=vad_end,
+                text=text.strip(),
+                confidence=0.95,
+            )]
+
+        segments: List[TranscriptionSegment] = []
+        prev_offset = 0
+
+        for offset in split_offsets:
+            sub_text = text[prev_offset:offset].strip()
+            if not sub_text:
+                prev_offset = offset
+                continue
+
+            # 使用 char_time_map 获取子分段的起止时间
+            start_idx = seg_start_in_raw + prev_offset
+            end_idx = seg_start_in_raw + offset - 1
+
+            t_start = char_time_map[start_idx][0] if start_idx < len(char_time_map) else vad_start
+            t_end = char_time_map[end_idx][1] if end_idx < len(char_time_map) else vad_end
+
+            if t_end <= t_start:
+                t_end = t_start + 0.1
+
+            segments.append(TranscriptionSegment(
+                start_time=round(t_start, 3),
+                end_time=round(t_end, 3),
+                text=sub_text,
+                confidence=0.95,
+            ))
+            prev_offset = offset
+
+        # 处理剩余部分
+        remaining = text[prev_offset:].strip()
+        if remaining:
+            start_idx = seg_start_in_raw + prev_offset
+            t_start = char_time_map[start_idx][0] if start_idx < len(char_time_map) else vad_start
+            segments.append(TranscriptionSegment(
+                start_time=round(t_start, 3),
+                end_time=vad_end,
+                text=remaining,
+                confidence=0.95,
+            ))
+
+        return segments
 
     def _build_segments_by_punctuation_then_align(
         self,
@@ -1927,33 +2227,27 @@ class SenseVoiceTranscriber:
         raw_char_times: List[Tuple[float, float]],
         raw_offset: int,
     ) -> List[TranscriptionSegment]:
-        """拆分超长句子并创建字幕片段"""
+        """拆分超长中文句子并创建字幕片段"""
         segments = []
         duration = t_end - t_start
         text_len = len(text)
 
-        # 寻找切分点（标点或自然边界）
+        # 寻找切分点（中文标点或助词）
         split_points = []
         for i, ch in enumerate(text):
-            if ch in "，,。！？!?;；:：、":
+            if ch in "，。！？；、：":
                 split_points.append(i)
 
-        # 如果没有标点，在中间附近找空格或助词
         if not split_points:
             mid = text_len // 2
             for i in range(mid - 5, mid + 5):
-                if 0 < i < text_len:
-                    if text[i] == ' ' or text[i] in "的了呢吧啊吗":
-                        split_points.append(i)
+                if 0 < i < text_len and text[i] in "的了呢吧啊吗着过地得":
+                    split_points.append(i)
 
-        # 如果还是没有，就在中间切
         if not split_points:
             split_points = [text_len // 2]
 
-        # 使用第一个切分点
         split_pos = split_points[0] + 1
-
-        # 确保 split_pos 有效
         if split_pos <= 0:
             split_pos = max(1, text_len // 2)
 
@@ -2421,13 +2715,11 @@ class SenseVoiceTranscriber:
 
     def _is_safe_subtitle_boundary(self, text: str, pos: int) -> bool:
         """
-        通用安全边界检测，不再依赖硬编码词组列表。
+        中文安全边界检测。
 
         规则:
-        1. 不能在英文单词中间断开
-        2. 不能在助词（的/了/呢/吧/啊/吗/着/过）之前断开
-        3. 不能在介词/连词（但/和/与/及/把/被/对/在/以/从/向/给）之后断开
-        4. 不能在数字中间断开
+        1. 不能在助词（的/了/呢/吧/啊/吗/着/过）之前断开
+        2. 不能在介词/连词（但/和/与/及/把/被/对/在/以/从/向/给）之后断开
         """
         if pos <= 0 or pos >= len(text):
             return True
@@ -2435,16 +2727,8 @@ class SenseVoiceTranscriber:
         prev_char = text[pos - 1]
         next_char = text[pos]
 
-        # 不能在英文单词/数字中间断开
-        if prev_char.isascii() and prev_char.isalnum() and next_char.isascii() and next_char.isalnum():
-            return False
-
         # 中文助词不作为下一行的开头
-        if next_char in "的呢吧啊吗着过":
-            return False
-
-        # "了" 特殊处理：如果前一个字也是动词性字，可以在"了"后断开
-        if next_char == "了" and prev_char not in "是的有":
+        if next_char in "的呢吧啊吗着过了":
             return False
 
         # 介词/连词不作为上一行的结尾
@@ -2844,6 +3128,18 @@ class SenseVoiceTranscriber:
             merged_char_ts = [CharTimestamp(**ts) for ts in raw_ts]
             logger.info(f"合并后逐字时间戳: {len(merged_char_ts)} 个")
 
+        # 提取 VAD 分段
+        raw_vad_segments = merged_result.get("vad_segments", [])
+        vad_segments = []
+        for vs in raw_vad_segments:
+            vad_segments.append(TranscriptionSegment(
+                start_time=vs["start_time"],
+                end_time=vs["end_time"],
+                text=vs["text"],
+                confidence=0.95,
+            ))
+        logger.info(f"合并后 VAD 分段: {len(vad_segments)} 个")
+
         # 后处理：清理特殊标记
         raw_text = merged_result.get("text", "")
         if raw_text:
@@ -2857,16 +3153,22 @@ class SenseVoiceTranscriber:
             except Exception as e:
                 logger.warning(f"标点符号处理失败: {e}")
 
-        # 构建字幕 segments：标点断句 → 去标点 → 时间对齐
+        # 构建字幕 segments：优先使用 VAD 分段，回退到标点断句
         segments = []
         if timestamp_mode in ("char", "sentence") and merged_char_ts:
             try:
                 logger.info(f"开始构建字幕 segments: raw_text 长度={len(raw_text)}, "
                            f"punctuated_text 长度={len(punctuated_text)}, "
-                           f"char_ts 数量={len(merged_char_ts)}")
-                segments = self._build_segments_by_punctuation_then_align(
-                    raw_text, punctuated_text, merged_char_ts
-                )
+                           f"char_ts 数量={len(merged_char_ts)}, "
+                           f"VAD 分段={len(vad_segments)}")
+                if vad_segments:
+                    segments = self._build_segments_vad_first(
+                        vad_segments, merged_char_ts, punctuated_text, raw_text
+                    )
+                else:
+                    segments = self._build_segments_by_punctuation_then_align(
+                        raw_text, punctuated_text, merged_char_ts
+                    )
                 logger.info(f"构建字幕 segments 成功: {len(segments)} 个片段")
             except Exception as e:
                 logger.error(f"构建字幕 segments 失败: {e}")
@@ -2962,6 +3264,86 @@ class SenseVoiceTranscriber:
             logger.warning(f"提取逐字时间戳时出错: {e}")
 
         return char_ts_list
+
+    def _extract_vad_segments_from_result(
+        self,
+        result,
+        time_offset: float = 0.0,
+    ) -> List[dict]:
+        """
+        从 SenseVoice 结果中提取 VAD 分段信息。
+
+        SenseVoice with merge_vad=True 返回的每个 entry 对应一个人声段，
+        包含准确的 start/end 时间边界。
+
+        Returns:
+            List[dict]: [{"text": "...", "start_time": ..., "end_time": ...}]
+        """
+        vad_segments = []
+
+        try:
+            if result is None or isinstance(result, (int, str)):
+                return []
+
+            if not hasattr(result, '__len__') or len(result) == 0:
+                return []
+
+            first_result = result[0]
+            if isinstance(first_result, (int, float, str)):
+                return []
+
+            entries = first_result if isinstance(first_result, (list, tuple)) else [first_result]
+
+            for entry in entries:
+                if not isinstance(entry, dict):
+                    continue
+
+                words = entry.get("words", [])
+                timestamps = entry.get("timestamp", [])
+                entry_text = entry.get("text", "") or entry.get("sentence", "")
+                entry_text = self._clean_special_tokens(entry_text)
+
+                if not words or not timestamps:
+                    continue
+
+                # 从 words/timestamps 计算分段的准确起止时间
+                valid_starts = []
+                valid_ends = []
+                for w, ts in zip(words, timestamps):
+                    if not isinstance(ts, (list, tuple)) or len(ts) < 2:
+                        continue
+                    clean_w = self._clean_special_tokens(str(w))
+                    if not clean_w or clean_w.startswith("<|") or clean_w.startswith("|>"):
+                        continue
+                    try:
+                        start_s = float(ts[0]) / 1000.0 + time_offset
+                        end_s = float(ts[1]) / 1000.0 + time_offset
+                        if end_s >= start_s:
+                            valid_starts.append(start_s)
+                            valid_ends.append(end_s)
+                    except (ValueError, TypeError):
+                        continue
+
+                if valid_starts and valid_ends:
+                    # 使用实际时间戳边界
+                    seg_text = ''.join(
+                        self._clean_special_tokens(str(w))
+                        for w in words
+                        if self._clean_special_tokens(str(w))
+                        and not self._clean_special_tokens(str(w)).startswith("<|")
+                    )
+                    if not seg_text:
+                        seg_text = entry_text
+                    vad_segments.append({
+                        "text": seg_text,
+                        "start_time": round(min(valid_starts), 3),
+                        "end_time": round(max(valid_ends), 3),
+                    })
+
+        except Exception as e:
+            logger.debug(f"提取 VAD 分段失败: {e}")
+
+        return vad_segments
 
     def get_model_info(self) -> Dict[str, Any]:
         """获取当前模型信息"""
