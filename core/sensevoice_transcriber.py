@@ -1667,7 +1667,7 @@ class SenseVoiceTranscriber:
             ]
 
         # ---- 第2步: 按标点切分句子 ----
-        sent_enders = set("。！？；\n")
+        sent_enders = set("。！？，；.!?;,\n")
         sentence_spans = []
         buf_start = 0
         for i, ch in enumerate(punctuated_text):
@@ -1707,7 +1707,7 @@ class SenseVoiceTranscriber:
         # ---- 第4步: 合并过短的 segments ----
         merged = []
         for seg in segments:
-            if merged and len(self._SEGMENT_PUNCT_RE.sub('', seg.text)) < 10:
+            if merged and len(self._SEGMENT_PUNCT_RE.sub('', seg.text)) < 4:
                 merged[-1] = TranscriptionSegment(
                     start_time=merged[-1].start_time,
                     end_time=seg.end_time,
@@ -1716,6 +1716,34 @@ class SenseVoiceTranscriber:
                 )
             else:
                 merged.append(seg)
+
+        # ---- 第5步: 严格保证时间单调递增，消除重叠 ----
+        overlap_fixed = 0
+        for i in range(1, len(merged)):
+            prev = merged[i - 1]
+            cur = merged[i]
+            if cur.start_time < prev.end_time:
+                overlap_fixed += 1
+                mid = round((prev.end_time + cur.start_time) / 2, 3)
+                if mid <= prev.start_time:
+                    mid = round(prev.end_time, 3)
+                merged[i - 1] = TranscriptionSegment(
+                    start_time=prev.start_time,
+                    end_time=mid,
+                    text=prev.text,
+                    confidence=prev.confidence,
+                    char_timestamps=getattr(prev, 'char_timestamps', []),
+                )
+                merged[i] = TranscriptionSegment(
+                    start_time=mid,
+                    end_time=max(cur.end_time, mid + 0.001),
+                    text=cur.text,
+                    confidence=cur.confidence,
+                    char_timestamps=getattr(cur, 'char_timestamps', []),
+                )
+
+        if overlap_fixed:
+            logger.info(f"修复 {overlap_fixed} 处字幕时间重叠")
 
         logger.info(f"从 char_timestamps 构建 {len(merged)} 个 segments")
         return merged

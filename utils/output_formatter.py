@@ -166,6 +166,14 @@ def _format_txt(result: TranscriptionResult) -> str:
     return result.text
 
 
+def _strip_subtitle_punct(text: str) -> str:
+    """去掉字幕末尾的标点（问号和感叹号保留）
+
+    Netflix/BBC/中文字幕组规范：句尾不加句号/逗号
+    """
+    return text.rstrip("。，、；：,.;:") if text else text
+
+
 def _format_srt(result: TranscriptionResult) -> str:
     """格式化为SRT字幕格式"""
     if not result.segments:
@@ -177,7 +185,7 @@ def _format_srt(result: TranscriptionResult) -> str:
         end_time = _format_srt_time(segment.end_time)
         srt_content.append(f"{i}")
         srt_content.append(f"{start_time} --> {end_time}")
-        srt_content.append(segment.text)
+        srt_content.append(_strip_subtitle_punct(segment.text))
         srt_content.append("")  # 空行
 
     return "\n".join(srt_content)
@@ -193,7 +201,7 @@ def _format_vtt(result: TranscriptionResult) -> str:
         start_time = _format_vtt_time(segment.start_time)
         end_time = _format_vtt_time(segment.end_time)
         vtt_content.append(f"{start_time} --> {end_time}")
-        vtt_content.append(segment.text)
+        vtt_content.append(_strip_subtitle_punct(segment.text))
         vtt_content.append("")  # 空行
 
     return "\n".join(vtt_content)

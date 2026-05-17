@@ -50,6 +50,14 @@ BOOTSTRAP_ICONS_FONT_URL = (
     "https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/fonts/bootstrap-icons.woff2"
 )
 
+MANROPE_FONT_URLS = {
+    400: "https://fonts.gstatic.com/s/manrope/v15/xn7gYHE41ni1AdIRggexSvfedN4.woff2",
+    500: "https://fonts.gstatic.com/s/manrope/v15/xn7gYHE41ni1AdIRggOxSvfedN4.woff2",
+    600: "https://fonts.gstatic.com/s/manrope/v15/xn7gYHE41ni1AdIRggSvxSvfedN4.woff2",
+    700: "https://fonts.gstatic.com/s/manrope/v15/xn7gYHE41ni1AdIRggWgxSvfedN4.woff2",
+    800: "https://fonts.gstatic.com/s/manrope/v15/xn7gYHE41ni1AdIRggewSvfedN4.woff2",
+}
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 OUTPUT_BASE = PROJECT_ROOT / "dist"
 DOWNLOAD_CACHE = PROJECT_ROOT / "dist" / ".cache"
@@ -331,18 +339,34 @@ def copy_app_source(app_dir: Path) -> None:
 
 
 def bundle_web_assets(app_dir: Path) -> None:
-    """[Step 6] 下载 Bootstrap 离线资源 + 修补 index.html"""
+    """[Step 6] 下载 Bootstrap + 字体离线资源 + 修补 index.html"""
     vendor = app_dir / "web" / "vendor"
     bootstrap_css_dir = vendor / "bootstrap" / "css"
     bootstrap_icons_dir = vendor / "bootstrap-icons" / "font"
+    fonts_dir = vendor / "fonts"
 
-    for d in [bootstrap_css_dir, bootstrap_icons_dir]:
+    for d in [bootstrap_css_dir, bootstrap_icons_dir, fonts_dir]:
         d.mkdir(parents=True, exist_ok=True)
 
     download_file(BOOTSTRAP_CSS_URL, bootstrap_css_dir / "bootstrap.min.css", "Bootstrap CSS")
     download_file(BOOTSTRAP_JS_URL, vendor / "bootstrap" / "bootstrap.bundle.min.js", "Bootstrap JS")
     download_file(BOOTSTRAP_ICONS_CSS_URL, vendor / "bootstrap-icons" / "bootstrap-icons.css", "Bootstrap Icons CSS")
     download_file(BOOTSTRAP_ICONS_FONT_URL, bootstrap_icons_dir / "bootstrap-icons.woff2", "Bootstrap Icons Font")
+
+    # 下载 Manrope 字体
+    for weight, url in MANROPE_FONT_URLS.items():
+        download_file(url, fonts_dir / f"manrope-{weight}.woff2", f"Manrope {weight}")
+
+    # 生成本地字体 CSS（Manrope 本地 + Noto Sans SC 系统 fallback）
+    fonts_css = fonts_dir / "fonts.css"
+    if not fonts_css.exists():
+        lines = []
+        for weight in MANROPE_FONT_URLS:
+            lines.append(
+                f"@font-face {{ font-family: 'Manrope'; font-weight: {weight}; "
+                f"font-display: swap; src: url('./manrope-{weight}.woff2') format('woff2'); }}"
+            )
+        fonts_css.write_text("\n".join(lines), encoding="utf-8")
 
     # 修补 index.html 使用本地资源
     html_file = app_dir / "web" / "index.html"
@@ -362,6 +386,21 @@ def bundle_web_assets(app_dir: Path) -> None:
     content = content.replace(
         "https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js",
         "/static/vendor/bootstrap/bootstrap.bundle.min.js",
+    )
+
+    # 替换 Google Fonts 为本地字体
+    import re
+    content = re.sub(
+        r'<link rel="preconnect" href="https://fonts\.gstatic\.com"[^>]*>\n?',
+        '', content
+    )
+    content = re.sub(
+        r'<link rel="preconnect" href="https://fonts\.googleapis\.com"[^>]*>\n?',
+        '', content
+    )
+    content = re.sub(
+        r'<link href="https://fonts\.googleapis\.com/css2[^"]*"[^>]*/>',
+        '<link href="/static/vendor/fonts/fonts.css" rel="stylesheet">', content
     )
 
     # 修正 Bootstrap Icons 字体路径（CSS 引用相对路径 ./fonts/）
