@@ -225,8 +225,8 @@ python webmain.py transcribe /path/to/video.mp4 --model sensevoice-small
 # 指定语言
 python webmain.py transcribe /path/to/recording.m4a --language zh
 
-# 包含时间戳
-python webmain.py transcribe /path/to/video.mp4 --timestamps
+# 生成带时间戳的字幕文件（SRT/VTT格式）
+python webmain.py transcribe /path/to/video.mp4 --format srt --timestamps
 
 # 批量处理（文件列表可混合视频和音频路径）
 python webmain.py batch file_list.txt
@@ -239,6 +239,63 @@ python webmain.py info
 
 # 查看可用模型
 python webmain.py models
+```
+
+#### 字幕时间戳生成（CLI 重点功能）
+
+**生成 SRT 字幕文件**：
+```bash
+# 基础 SRT 字幕（带时间戳）
+python webmain.py transcribe video.mp4 --format srt --timestamps
+
+# 安静模式（减少日志输出）
+python webmain.py transcribe video.mp4 --format srt --timestamps --quiet
+
+# 指定输出文件名
+python webmain.py transcribe video.mp4 --format srt --timestamps -o output.srt
+```
+
+**字幕时间戳对齐机制**：
+
+项目使用 **FA（Forced Aligner，强制对齐）** 技术来生成精确的字幕时间戳：
+
+1. **SenseVoice 粗粒度时间戳**：SenseVoice 模型提供基础的字符级时间戳
+2. **FA 精确对齐**：使用 FunASR 的 `fa-zh` 模型进行强制对齐，获取逐字精确时间戳
+3. **时间戳修正**：自动检测并修复时间重叠，确保字幕不叠加显示
+4. **智能断句**：基于标点符号和语义进行自然断句，避免在不自然的位置切分
+
+**字幕切分规则**：
+- 句末标点（。！？!?）→ 必须断句
+- 逗号/分号（，,；;）→ 句子够长时断句
+- 英文单词保护 → 不会从单词中间切分（如 `CIRCLE`、`MONGODB`）
+- 中文字符保护 → 避免在助词、介词等不自然位置切分
+
+**时间偏移调整**（可选）：
+
+如果字幕与声音不同步，可通过环境变量调整：
+
+```bash
+# 字幕比声音快 → 延迟字幕（正值）
+set FA_TIME_OFFSET=0.2
+python webmain.py transcribe video.mp4 --format srt --timestamps
+
+# 字幕比声音慢 → 提前字幕（负值）
+set FA_TIME_OFFSET=-0.1
+python webmain.py transcribe video.mp4 --format srt --timestamps
+
+# 或在 .env 文件中设置
+FA_TIME_OFFSET=0.2  # 正值延迟，负值提前
+```
+
+**输出示例**（SRT 格式）：
+```srt
+1
+00:00:01,010 --> 00:00:04,410
+这堂课呢我们对MONGODB做一个简单的介绍
+
+2
+00:00:04,410 --> 00:00:07,346
+那么MONGODB呢是一个基于文档的
 ```
 
 ## 🛠️ 配置选项
@@ -265,6 +322,18 @@ DEFAULT_MODEL=sensevoice-small
 # 默认使用中文以获得最佳识别效果
 DEFAULT_LANGUAGE=zh
 
+# ============================================================
+# 字幕时间戳配置
+# ============================================================
+# FA (强制对齐) 时间偏移配置（秒）
+# 正值延迟字幕，负值提前字幕
+# 用于微调字幕与声音的同步
+# 典型值：0.1-0.3 秒（字幕比声音快时），-0.1 秒（字幕比声音慢时）
+FA_TIME_OFFSET=0.0
+
+# ============================================================
+# 音频处理配置
+# ============================================================
 # 音频分块处理配置
 # 长音频分段处理可提高准确率和性能，避免CUDA OOM
 ENABLE_AUDIO_CHUNKING=true

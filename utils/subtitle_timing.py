@@ -2,17 +2,25 @@
 字幕时间修正工具
 """
 
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 
 from models.schemas import TranscriptionSegment
 
 
+def _calculate_segment_end(
+    seg_start: float, seg_end: float, next_start: Optional[float], hold: float
+) -> float:
+    """计算片段结束时间，确保晚于开始时间"""
+    end_time = min(seg_end + hold, next_start) if next_start is not None else seg_end + hold
+    return max(end_time, seg_start + 0.1)
+
+
 def fix_subtitle_segment_timing(
     segments: List[TranscriptionSegment],
-    subtitle_hold_seconds: float = 0.35,
+    subtitle_hold_seconds: float = 0.2,
     min_duration_seconds: float = 0.5,
-    max_chars: int = 48,
-    max_duration_seconds: float = 8.35,
+    max_chars: int = 25,
+    max_duration_seconds: float = 5.0,
 ) -> Tuple[List[TranscriptionSegment], int]:
     cleaned = [seg for seg in segments if seg.text.strip()]
     overlap_fixed = 0
@@ -40,9 +48,10 @@ def fix_subtitle_segment_timing(
 
         if merge_into_previous:
             prev = cleaned[i - 1]
+            new_end = max(seg.end_time, prev.end_time) or prev.start_time + 0.1
             cleaned[i - 1] = TranscriptionSegment(
                 start_time=prev.start_time,
-                end_time=seg.end_time,
+                end_time=new_end,
                 text=f"{prev.text}{seg.text}",
                 confidence=prev.confidence,
                 char_timestamps=getattr(prev, "char_timestamps", []) + getattr(seg, "char_timestamps", []),
@@ -51,9 +60,10 @@ def fix_subtitle_segment_timing(
             continue
 
         next_seg = cleaned[i + 1]
+        new_end = max(next_seg.end_time, seg.end_time) or seg.start_time + 0.1
         cleaned[i + 1] = TranscriptionSegment(
             start_time=seg.start_time,
-            end_time=next_seg.end_time,
+            end_time=new_end,
             text=f"{seg.text}{next_seg.text}",
             confidence=next_seg.confidence,
             char_timestamps=getattr(seg, "char_timestamps", []) + getattr(next_seg, "char_timestamps", []),
@@ -62,11 +72,7 @@ def fix_subtitle_segment_timing(
 
     for i, seg in enumerate(cleaned):
         next_start = cleaned[i + 1].start_time if i + 1 < len(cleaned) else None
-        end_time = seg.end_time + subtitle_hold_seconds
-        if next_start is not None:
-            end_time = min(end_time, next_start)
-        if end_time <= seg.start_time:
-            end_time = seg.end_time
+        end_time = _calculate_segment_end(seg.start_time, seg.end_time, next_start, subtitle_hold_seconds)
         cleaned[i] = TranscriptionSegment(
             start_time=seg.start_time,
             end_time=round(end_time, 3),

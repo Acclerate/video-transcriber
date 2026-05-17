@@ -34,6 +34,7 @@ from models.schemas import (
     TimestampMode
 )
 from utils.subtitle_timing import fix_subtitle_segment_timing
+from config.settings import settings
 
 try:
     from utils.forced_aligner import (
@@ -1131,67 +1132,64 @@ class SenseVoiceTranscriber:
             # 文本后处理
             if text:
                 # 步骤1: 清理特殊标记
-                text = self._clean_special_tokens(text)
-                # 更新segments中的文本
-                for seg in segments:
-                    seg.text = self._clean_special_tokens(seg.text)
+                raw_text = self._clean_special_tokens(text)
 
-                # 步骤2: FA 强制对齐（在标点添加之前，使用原始文本）
+                # 步骤2: FA 强制对齐（使用原始文本获取精确时间戳）
                 if progress_callback:
-                    progress_callback(88)
+                    progress_callback(85)
 
-                fa_text = None
                 fa_char_ts: List[CharTimestamp] = []
-
-                # 运行时动态判断是否使用 FA
                 use_fa = FA_AVAILABLE and actual_mode in ("char", "sentence")
 
-                if use_fa and text:
+                if use_fa and raw_text:
                     try:
                         logger.info("尝试使用 FA 强制对齐获取精确时间戳...")
                         fa_audio_path = raw_audio_path or audio_path
-                        # FA 对齐使用原始文本（标点添加前），确保对齐准确性
-                        fa_text, fa_char_ts = self._align_with_fa(fa_audio_path, text)
+                        fa_text, fa_char_ts = self._align_with_fa(fa_audio_path, raw_text)
+                        if fa_text and fa_char_ts and len(fa_text) == len(fa_char_ts):
+                            raw_text = fa_text
+                            logger.info(f"使用 FA 文本，长度={len(raw_text)}")
                     finally:
-                        # FA 模型占用大量显存，使用完后立即卸载
                         if self._fa_aligner is not None:
                             self._fa_aligner.unload_model()
                             self._fa_aligner = None
-                            logger.debug("FA 模型已卸载，释放显存")
 
+                # 选择最佳时间戳来源
                 if fa_char_ts:
-                    logger.info(f"FA 强制对齐成功: {len(fa_char_ts)} 个精确时间戳")
+                    logger.info(f"FA 对齐成功: {len(fa_char_ts)} 个时间戳")
                     char_timestamps = fa_char_ts
-                elif use_fa:
-                    logger.warning("FA 对齐未产生时间戳，回退到 SenseVoice 原始时间戳")
-                    # 继续使用 SenseVoice 的时间戳
                 else:
                     logger.debug("使用 SenseVoice 原始时间戳")
 
-                # 步骤3: 添加标点符号（在 FA 对齐之后）
+                # 步骤3: 添加标点符号（仅用于确定自然断句位置）
+                if progress_callback:
+                    progress_callback(90)
+
+                punctuated_text = raw_text
                 if self.enable_punctuation:
                     try:
                         logger.info("正在添加标点符号...")
-                        text_with_punct = self._add_punctuation(text, detected_lang)
-                        if text_with_punct and text_with_punct != text:
+                        text_with_punct = self._add_punctuation(raw_text, detected_lang)
+                        if text_with_punct and text_with_punct != raw_text:
                             logger.info(f"标点符号添加成功")
-                            text = text_with_punct
-                            if actual_mode not in ("char", "sentence"):
-                                for seg in segments:
-                                    if seg.text:
-                                        seg.text = self._add_punctuation(seg.text, detected_lang)
+                            punctuated_text = text_with_punct
                         else:
                             logger.info("标点符号处理无变化")
                     except Exception as e:
                         logger.warning(f"标点符号后处理失败: {e}，使用原始文本")
 
-                # 步骤4: 从 char_timestamps 构建字幕 segments
+                # 步骤4: 基于标点断句 + 时间戳对齐
+                # 字幕文本不含标点，标点仅用于确定断句位置
                 if progress_callback:
-                    progress_callback(90)
+                    progress_callback(95)
+
                 if actual_mode in ("char", "sentence") and char_timestamps:
-                    rebuilt = self._build_subtitle_segments_from_raw_ts(char_timestamps, text)
-                    if rebuilt:
-                        segments = rebuilt
+                    segments = self._build_segments_by_punctuation_then_align(
+                        raw_text, punctuated_text, char_timestamps
+                    )
+
+                # 最终文本使用原始文本（不含标点）
+                text = raw_text
 
             # 最终验证：确保我们有有效的文本
             if not text or not text.strip():
@@ -1403,6 +1401,9 @@ class SenseVoiceTranscriber:
                         fa_text, fa_char_ts = self._align_with_fa(chunk_path, text, time_offset=chunk_start)
                         if fa_char_ts:
                             logger.info(f"块 {chunk_start:.1f}s-{chunk_end:.1f}s: FA 对齐成功，{len(fa_char_ts)} 个精确时间戳")
+                            if fa_text and len(fa_text) == len(fa_char_ts):
+                                text = fa_text
+                                logger.info(f"块 {chunk_start:.1f}s-{chunk_end:.1f}s: 使用 FA 文本，长度={len(text)}")
                             char_ts_list = [
                                 {"word": ts.word, "start": ts.start, "end": ts.end}
                                 for ts in fa_char_ts
@@ -1701,6 +1702,7 @@ class SenseVoiceTranscriber:
                 self._fa_aligner = ForcedAligner(
                     model_cache_dir=self.model_cache_dir,
                     device=self.device,
+                    force_time_shift=settings.FA_TIME_OFFSET,
                 )
 
             if not self._fa_aligner._loaded:
@@ -1715,6 +1717,276 @@ class SenseVoiceTranscriber:
             logger.warning(f"FA 强制对齐异常: {e}，回退到 SenseVoice 时间戳")
             return None, []
 
+    def _build_segments_by_punctuation_then_align(
+        self,
+        raw_text: str,
+        punctuated_text: str,
+        char_timestamps: List[CharTimestamp],
+    ) -> List[TranscriptionSegment]:
+        """
+        核心流程：标点断句 → 去标点 → 时间戳对齐
+
+        策略：
+        1. 建立 punctuated_text → raw_text 的字符位置映射
+        2. 在 punctuated_text 中找到标点位置
+        3. 通过映射找到对应的 raw_text 位置
+        4. 从 raw_text 中提取句子（不含标点）
+        5. 为每个句子分配时间戳
+        """
+        if not raw_text or not char_timestamps:
+            return []
+
+        # 步骤1: 建立 raw_text 每个字符的时间
+        expanded_ts = self._expand_subtitle_char_timestamps([
+            ts for ts in char_timestamps if ts.word and ts.end >= ts.start
+        ])
+        if not expanded_ts:
+            logger.warning("_build_segments_by_punctuation_then_align: expanded_ts 为空")
+            return []
+
+        # 建立 raw_text 每个字符的时间
+        # 如果 char_timestamps 的字符数少于 raw_text，需要填充
+        raw_char_times: List[Tuple[float, float]] = []
+        for ts in expanded_ts:
+            n_chars = len(ts.word)
+            if n_chars == 1:
+                raw_char_times.append((ts.start, ts.end))
+            else:
+                dur = (ts.end - ts.start) / n_chars
+                for i in range(n_chars):
+                    raw_char_times.append((
+                        round(ts.start + dur * i, 3),
+                        round(ts.start + dur * (i + 1), 3),
+                    ))
+
+        # 如果 raw_char_times 数量少于 raw_text，用最后一个时间填充
+        while len(raw_char_times) < len(raw_text):
+            if raw_char_times:
+                last_time = raw_char_times[-1]
+                raw_char_times.append((last_time[1], last_time[1] + 0.1))
+            else:
+                raw_char_times.append((0.0, 0.1))
+
+        # 如果 raw_char_times 为空，直接返回空
+        if not raw_char_times:
+            logger.warning("_build_segments_by_punctuation_then_align: raw_char_times 为空")
+            return []
+
+        logger.info(f"_build_segments_by_punctuation_then_align: "
+                   f"raw_text 长度={len(raw_text)}, "
+                   f"raw_char_times 数量={len(raw_char_times)}, "
+                   f"第一个时间={raw_char_times[0] if raw_char_times else 'N/A'}, "
+                   f"最后一个时间={raw_char_times[-1] if raw_char_times else 'N/A'}")
+
+        # 步骤2: 建立 punctuated_text → raw_text 的位置映射
+        punct_to_raw: List[int] = []  # punct_to_raw[i] = 对应的 raw_text 位置
+        raw_idx = 0
+        for ch in punctuated_text:
+            if ch.isspace():
+                punct_to_raw.append(-1)  # 空格不映射
+                continue
+            if raw_idx < len(raw_text):
+                # 尝试匹配
+                if raw_idx < len(raw_text) and ch == raw_text[raw_idx]:
+                    punct_to_raw.append(raw_idx)
+                    raw_idx += 1
+                else:
+                    # 尝试跳过少量字符
+                    found = False
+                    for ahead in range(1, 5):
+                        if raw_idx + ahead < len(raw_text) and ch == raw_text[raw_idx + ahead]:
+                            punct_to_raw.append(raw_idx + ahead)
+                            raw_idx = raw_idx + ahead + 1
+                            found = True
+                            break
+                    if not found:
+                        punct_to_raw.append(raw_idx)
+                        raw_idx += 1
+            else:
+                punct_to_raw.append(-1)
+
+        # 步骤3: 在 punctuated_text 中找到标点位置（句子边界）
+        sentence_ends = set("。！？!?")
+        clause_ends = set("，,；;：:")
+
+        # 收集所有标点位置
+        split_positions: List[Tuple[int, str]] = []
+        for i, ch in enumerate(punctuated_text):
+            if ch in sentence_ends:
+                split_positions.append((i, "sentence"))
+            elif ch in clause_ends:
+                split_positions.append((i, "clause"))
+
+        # 步骤4: 根据标点位置切分句子
+        segments = []
+        last_split_raw_pos = 0  # 上次切分在 raw_text 中的位置
+
+        for punct_pos, split_type in split_positions:
+            # 获取标点在 raw_text 中的位置
+            if punct_pos >= len(punct_to_raw) or punct_to_raw[punct_pos] < 0:
+                continue
+
+            raw_pos = punct_to_raw[punct_pos]
+
+            # 确定是否在此处切分
+            should_split = False
+            if split_type == "sentence":
+                should_split = True  # 句末标点必断
+            elif split_type == "clause":
+                # 逗号：当句子够长时切分
+                if raw_pos - last_split_raw_pos >= 8:
+                    should_split = True
+
+            if not should_split:
+                continue
+
+            # 提取句子文本（从 raw_text 中，不含标点）
+            sent_text = raw_text[last_split_raw_pos:raw_pos]
+            if not sent_text.strip():
+                last_split_raw_pos = raw_pos
+                continue
+
+            # 获取时间范围
+            t_start_idx = last_split_raw_pos
+            t_end_idx = min(raw_pos - 1, len(raw_char_times) - 1)
+
+            if t_start_idx < len(raw_char_times):
+                t_start = raw_char_times[t_start_idx][0]
+            else:
+                t_start = 0.0
+
+            if t_end_idx < len(raw_char_times) and t_end_idx >= t_start_idx:
+                t_end = raw_char_times[t_end_idx][1]
+            else:
+                t_end = t_start + 0.1
+
+            if t_end < t_start:
+                t_end = t_start + 0.1
+
+            # 超长句子拆分
+            if len(sent_text) > 30:
+                sub_segments = self._split_and_create_segments(
+                    sent_text, t_start, t_end, raw_char_times, last_split_raw_pos
+                )
+                segments.extend(sub_segments)
+            else:
+                # 确保时间有效
+                if t_end <= t_start:
+                    t_end = t_start + 0.1
+                segments.append(TranscriptionSegment(
+                    start_time=round(t_start, 3),
+                    end_time=round(t_end, 3),
+                    text=sent_text.strip(),
+                    confidence=0.95,
+                ))
+
+            last_split_raw_pos = raw_pos
+
+        # 处理剩余内容
+        if last_split_raw_pos < len(raw_text):
+            remaining = raw_text[last_split_raw_pos:]
+            if remaining.strip():
+                t_start_idx = last_split_raw_pos
+                t_end_idx = len(raw_char_times) - 1
+
+                if t_start_idx < len(raw_char_times):
+                    t_start = raw_char_times[t_start_idx][0]
+                else:
+                    t_start = 0.0
+
+                if t_end_idx < len(raw_char_times):
+                    t_end = raw_char_times[t_end_idx][1]
+                else:
+                    t_end = t_start + 0.1
+
+                # 确保时间有效
+                if t_end <= t_start:
+                    t_end = t_start + 0.1
+
+                if len(remaining) > 30:
+                    sub_segments = self._split_and_create_segments(
+                        remaining, t_start, t_end, raw_char_times, last_split_raw_pos
+                    )
+                    segments.extend(sub_segments)
+                else:
+                    segments.append(TranscriptionSegment(
+                        start_time=round(t_start, 3),
+                        end_time=round(t_end, 3),
+                        text=remaining.strip(),
+                        confidence=0.95,
+                    ))
+
+        # 步骤5: 修复时间重叠
+        return self._dedupe_and_fix_segment_timing(segments)
+
+    def _split_and_create_segments(
+        self,
+        text: str,
+        t_start: float,
+        t_end: float,
+        raw_char_times: List[Tuple[float, float]],
+        raw_offset: int,
+    ) -> List[TranscriptionSegment]:
+        """拆分超长句子并创建字幕片段"""
+        segments = []
+        duration = t_end - t_start
+        text_len = len(text)
+
+        # 寻找切分点（标点或自然边界）
+        split_points = []
+        for i, ch in enumerate(text):
+            if ch in "，,。！？!?;；:：、":
+                split_points.append(i)
+
+        # 如果没有标点，在中间附近找空格或助词
+        if not split_points:
+            mid = text_len // 2
+            for i in range(mid - 5, mid + 5):
+                if 0 < i < text_len:
+                    if text[i] == ' ' or text[i] in "的了呢吧啊吗":
+                        split_points.append(i)
+
+        # 如果还是没有，就在中间切
+        if not split_points:
+            split_points = [text_len // 2]
+
+        # 使用第一个切分点
+        split_pos = split_points[0] + 1
+
+        # 确保 split_pos 有效
+        if split_pos <= 0:
+            split_pos = max(1, text_len // 2)
+
+        # 第一段
+        seg1_text = text[:split_pos]
+        if seg1_text.strip():
+            t1_end = t_start + (duration * split_pos / text_len)
+            if t1_end <= t_start:
+                t1_end = t_start + 0.1
+            segments.append(TranscriptionSegment(
+                start_time=round(t_start, 3),
+                end_time=round(t1_end, 3),
+                text=seg1_text.strip(),
+                confidence=0.95,
+            ))
+
+        # 第二段
+        seg2_text = text[split_pos:]
+        if seg2_text.strip():
+            t2_start = t_start + (duration * split_pos / text_len)
+            if t2_start >= t_end:
+                t2_start = t_end - 0.1
+            if t2_start < t_start:
+                t2_start = t_start
+            segments.append(TranscriptionSegment(
+                start_time=round(t2_start, 3),
+                end_time=round(t_end, 3),
+                text=seg2_text.strip(),
+                confidence=0.95,
+            ))
+
+        return segments
+
     def _build_subtitle_segments_from_raw_ts(
         self,
         char_timestamps: List[CharTimestamp],
@@ -1722,7 +1994,14 @@ class SenseVoiceTranscriber:
         max_chars: int = 36,
         max_duration: float = 8.0,
     ) -> List[TranscriptionSegment]:
-        """基于 SenseVoice 原始时间戳构建字幕片段。"""
+        """
+        基于标点符号构建字幕片段。
+
+        核心策略：优先在标点处断句，保证断句自然。
+        1. 句号/问号/感叹号 → 必断
+        2. 逗号/分号 → 当片段超过 max_chars 的 60% 时断
+        3. 超长片段 → 强制在最佳位置切分
+        """
         valid_timestamps = self._expand_subtitle_char_timestamps([
             ts for ts in char_timestamps
             if ts.word and ts.end >= ts.start
@@ -1731,21 +2010,16 @@ class SenseVoiceTranscriber:
             return []
 
         raw_text = "".join(ts.word for ts in valid_timestamps)
-        split_points = self._subtitle_split_points_from_punctuation(raw_text, punctuated_text)
-        split_points.update(self._subtitle_split_points_from_text(raw_text))
-        split_points.add(len(raw_text))
-        ordered_split_points = sorted(point for point in split_points if point > 0)
-        next_split_point = 0
+
+        # 建立标点位置映射（punctuated_text → raw_text 的位置）
+        punct_positions = self._map_punctuation_positions(raw_text, punctuated_text)
 
         segments = []
-        current = []
-        raw_pos = 0
+        current: List[CharTimestamp] = []
+        char_count = 0
 
-        def segment_text(items: List[CharTimestamp]) -> str:
-            return "".join(ts.word for ts in items).strip()
-
-        def append_segment(items: List[CharTimestamp]):
-            text = segment_text(items)
+        def flush(items: List[CharTimestamp]):
+            text = "".join(ts.word for ts in items).strip()
             if text:
                 segments.append(TranscriptionSegment(
                     start_time=round(items[0].start, 3),
@@ -1755,56 +2029,367 @@ class SenseVoiceTranscriber:
                     char_timestamps=list(items),
                 ))
 
-        def split_long_items(items: List[CharTimestamp]):
-            remaining = list(items)
-            while remaining:
-                if len(segment_text(remaining)) <= max_chars and remaining[-1].end - remaining[0].start <= max_duration:
-                    append_segment(remaining)
-                    return
-
-                split_index = self._best_subtitle_split_index(
-                    remaining,
-                    min_chars=6,
-                    max_chars=max_chars,
-                    force_split=remaining[-1].end - remaining[0].start > max_duration,
-                    max_duration=max_duration,
-                )
-                if split_index <= 0:
-                    split_index = max(1, len(remaining) // 2)
-                append_segment(remaining[:split_index])
-                remaining = remaining[split_index:]
-
-        current_start_raw_pos = 0
-
         for ts in valid_timestamps:
             current.append(ts)
-            raw_pos += len(ts.word)
+            char_count += len(ts.word)
 
-            should_flush = raw_pos == len(raw_text)
-            while next_split_point < len(ordered_split_points) and ordered_split_points[next_split_point] <= raw_pos:
-                point = ordered_split_points[next_split_point]
-                next_split_point += 1
-                if point <= current_start_raw_pos:
-                    continue
-                if len(segment_text(current)) < 6:
-                    continue
-                if not self._is_safe_subtitle_boundary(raw_text, raw_pos):
-                    continue
-                should_flush = True
+            # 检查是否应该在此处断句
+            should_split = False
+            split_reason = ""
+
+            # 1. 句末标点（。！？!?）→ 必断
+            if punct_positions.get(char_count) == "sentence_end":
+                should_split = True
+                split_reason = "句末标点"
+
+            # 2. 逗号/分号（，,；;）→ 当片段够长时断
+            elif punct_positions.get(char_count) == "clause_end":
+                if char_count >= max_chars * 0.4:
+                    should_split = True
+                    split_reason = "从句标点"
+
+            # 3. 片段过长 → 强制切分
+            elif char_count > max_chars or (current[-1].end - current[0].start > max_duration):
+                should_split = True
+                split_reason = "超长切分"
+
+            if should_split:
+                # 超长切分时，找到最佳切分位置
+                if split_reason == "超长切分":
+                    split_idx = self._find_best_split_point(current, max_chars)
+                    if split_idx > 0:
+                        flush(current[:split_idx])
+                        current = current[split_idx:]
+                        char_count = sum(len(ts.word) for ts in current)
+                    else:
+                        flush(current)
+                        current = []
+                        char_count = 0
+                else:
+                    flush(current)
+                    current = []
+                    char_count = 0
+
+        # 处理剩余内容
+        if current:
+            flush(current)
+
+        # 合并过短片段并修复时间重叠
+        return self._dedupe_and_fix_segment_timing(segments)
+
+    def _build_segments_from_punctuation(
+        self,
+        punctuated_text: str,
+        char_timestamps: List[CharTimestamp],
+        max_chars: int = 20,
+        max_duration: float = 5.0,
+    ) -> List[TranscriptionSegment]:
+        """
+        基于标点断句 + 时间戳对齐。
+
+        流程：
+        1. 按标点将文本切分为句子
+        2. 建立字符位置 → 时间的映射
+        3. 为每个句子查找精确的开始/结束时间
+        4. 合并过短句子，拆分超长句子
+        """
+        if not punctuated_text or not char_timestamps:
+            return []
+
+        # 步骤1: 按标点切分句子
+        sentences = self._split_sentences_by_punctuation(punctuated_text)
+        if not sentences:
+            return []
+
+        # 步骤2: 建立字符 → 时间映射
+        expanded_ts = self._expand_subtitle_char_timestamps([
+            ts for ts in char_timestamps if ts.word and ts.end >= ts.start
+        ])
+        if not expanded_ts:
+            return []
+
+        raw_text = "".join(ts.word for ts in expanded_ts)
+        char_time_map = self._build_char_time_map(expanded_ts, raw_text, punctuated_text)
+
+        # 步骤3: 为每个句子分配时间
+        segments = []
+        for sent_text, sent_start_char, sent_end_char in sentences:
+            if not sent_text.strip():
+                continue
+
+            # 查找句子的时间范围
+            t_start = char_time_map.get(sent_start_char, (0.0, 0.0))[0]
+            t_end = char_time_map.get(sent_end_char - 1, (0.0, 0.0))[1]
+
+            if t_end <= t_start:
+                t_end = t_start + 0.1
+
+            # 超长句子拆分
+            if len(sent_text) > max_chars or t_end - t_start > max_duration:
+                sub_segments = self._split_long_sentence(
+                    sent_text, t_start, t_end, max_chars, max_duration
+                )
+                segments.extend(sub_segments)
+            else:
+                segments.append(TranscriptionSegment(
+                    start_time=round(t_start, 3),
+                    end_time=round(t_end, 3),
+                    text=sent_text.strip(),
+                    confidence=0.95,
+                ))
+
+        # 步骤4: 合并过短 + 修复重叠
+        return self._dedupe_and_fix_segment_timing(segments)
+
+    def _split_sentences_by_punctuation(
+        self, text: str, min_clause_len: int = 8
+    ) -> List[Tuple[str, int, int]]:
+        """
+        按标点切分句子。
+
+        Returns:
+            List[(sentence_text, start_char_pos, end_char_pos)]
+        """
+        sentence_ends = set("。！？!?")
+        clause_ends = set("，,；;：:")
+
+        sentences = []
+        current_start = 0
+        i = 0
+
+        while i < len(text):
+            ch = text[i]
+
+            # 句末标点 → 必断
+            if ch in sentence_ends:
+                sent_text = text[current_start:i + 1]
+                if sent_text.strip():
+                    sentences.append((sent_text, current_start, i + 1))
+                current_start = i + 1
+
+            # 从句标点 → 当句子够长时断
+            elif ch in clause_ends:
+                sent_len = i - current_start
+                if sent_len >= min_clause_len:
+                    sent_text = text[current_start:i + 1]
+                    if sent_text.strip():
+                        sentences.append((sent_text, current_start, i + 1))
+                    current_start = i + 1
+
+            i += 1
+
+        # 处理剩余内容
+        if current_start < len(text):
+            remaining = text[current_start:]
+            if remaining.strip():
+                sentences.append((remaining, current_start, len(text)))
+
+        return sentences
+
+    def _build_char_time_map(
+        self,
+        expanded_ts: List[CharTimestamp],
+        raw_text: str,
+        punctuated_text: str,
+    ) -> Dict[int, Tuple[float, float]]:
+        """
+        建立 punctuated_text 字符位置 → (start, end) 的映射。
+
+        通过字符匹配将 punctuated_text 的位置映射到 raw_text，
+        再从 expanded_ts 获取时间。
+        """
+        time_map: Dict[int, Tuple[float, float]] = {}
+
+        # 先建立 raw_text 位置 → 时间
+        raw_time_map: Dict[int, Tuple[float, float]] = {}
+        for i, ts in enumerate(expanded_ts):
+            raw_time_map[i] = (ts.start, ts.end)
+
+        # 建立 punctuated_text → raw_text 的位置映射
+        raw_idx = 0
+        for punct_idx, ch in enumerate(punctuated_text):
+            if ch.isspace():
+                continue
+            if raw_idx < len(raw_text):
+                pos = raw_text.find(ch, raw_idx, min(raw_idx + 5, len(raw_text)))
+                if pos != -1:
+                    if pos in raw_time_map:
+                        time_map[punct_idx] = raw_time_map[pos]
+                    raw_idx = pos + 1
+                else:
+                    raw_idx += 1
+
+        return time_map
+
+    def _split_long_sentence(
+        self,
+        text: str,
+        t_start: float,
+        t_end: float,
+        max_chars: int,
+        max_duration: float,
+    ) -> List[TranscriptionSegment]:
+        """拆分超长句子为多个字幕片段。"""
+        segments = []
+        duration = t_end - t_start
+
+        # 按字符数估算切分次数
+        n_splits = max(1, (len(text) + max_chars - 1) // max_chars)
+        char_per_split = len(text) // n_splits
+
+        current_pos = 0
+        for i in range(n_splits):
+            if i == n_splits - 1:
+                # 最后一段：取剩余所有内容
+                seg_text = text[current_pos:]
+                seg_end = t_end
+            else:
+                # 寻找自然切分点（标点或单词边界）
+                target_pos = min(current_pos + char_per_split, len(text) - 1)
+                split_pos = self._find_natural_split(text, current_pos, target_pos)
+                seg_text = text[current_pos:split_pos]
+                seg_end = t_start + (duration * split_pos / len(text))
+
+            if seg_text.strip():
+                seg_start = t_start + (duration * current_pos / len(text))
+                segments.append(TranscriptionSegment(
+                    start_time=round(seg_start, 3),
+                    end_time=round(seg_end, 3),
+                    text=seg_text.strip(),
+                    confidence=0.95,
+                ))
+
+            current_pos = split_pos if i < n_splits - 1 else len(text)
+
+        return segments
+
+    def _find_natural_split(self, text: str, start: int, target: int) -> int:
+        """在 target 附近寻找自然切分点（标点或单词边界）。"""
+        # 向后搜索标点
+        for i in range(target, min(target + 10, len(text))):
+            if text[i] in "，,。！？!?;；:：":
+                return i + 1
+
+        # 向前搜索标点
+        for i in range(target, max(start, target - 10), -1):
+            if text[i] in "，,。！？!?;；:：":
+                return i + 1
+
+        # 英文单词边界
+        if target < len(text) and text[target] == ' ':
+            return target + 1
+
+        # 没找到好的切分点，就在 target 处切
+        return max(start + 1, target)
+
+    def _map_punctuation_positions(
+        self, raw_text: str, punctuated_text: str
+    ) -> Dict[int, str]:
+        """
+        映射标点在 raw_text 中的位置。
+
+        Returns:
+            Dict[int, str]: {位置: "sentence_end" | "clause_end"}
+        """
+        positions: Dict[int, str] = {}
+        if not raw_text or not punctuated_text:
+            return positions
+
+        sentence_ends = set("。！？!?")
+        clause_ends = set("，,；;：:")
+
+        raw_idx = 0
+        for ch in punctuated_text:
+            if ch in sentence_ends:
+                if raw_idx > 0:
+                    positions[raw_idx] = "sentence_end"
+                continue
+            if ch in clause_ends:
+                if raw_idx > 0:
+                    positions[raw_idx] = "clause_end"
+                continue
+            if ch.isspace():
+                continue
+            if raw_idx < len(raw_text):
+                # 尝试匹配 raw_text 中的字符
+                pos = raw_text.find(ch, raw_idx, min(raw_idx + 5, len(raw_text)))
+                if pos != -1:
+                    raw_idx = pos + 1
+                else:
+                    raw_idx += 1
+
+        return positions
+
+    def _find_best_split_point(
+        self, items: List[CharTimestamp], max_chars: int
+    ) -> int:
+        """
+        在超长无标点片段中找到最佳切分位置。
+
+        优先级：
+        1. 英文单词边界（空格位置）
+        2. 中文助词/语气词后
+        3. max_chars 的 60-80% 范围内
+        """
+        if len(items) <= 1:
+            return 0
+
+        text = "".join(ts.word for ts in items)
+        total_len = len(text)
+
+        # 目标切分范围：max_chars 的 60-80%
+        target_start = int(max_chars * 0.6)
+        target_end = min(int(max_chars * 0.8), total_len - 1)
+
+        if target_start >= target_end:
+            target_start = max_chars // 2
+
+        best_pos = 0
+        best_score = 0
+        char_pos = 0
+
+        for i, ts in enumerate(items[:-1], 1):
+            char_pos += len(ts.word)
+
+            if char_pos < target_start:
+                continue
+            if char_pos > target_end:
                 break
 
-            if should_flush:
-                if len(segment_text(current)) > max_chars or current[-1].end - current[0].start > max_duration:
-                    split_long_items(current)
-                else:
-                    append_segment(current)
-                current = []
-                current_start_raw_pos = raw_pos
+            score = 0
+            prev_char = text[char_pos - 1] if char_pos > 0 else ""
+            next_char = text[char_pos] if char_pos < total_len else ""
 
-        if current:
-            split_long_items(current)
+            # 英文单词边界
+            if prev_char.isascii() and next_char.isascii():
+                if prev_char.isalpha() and next_char.isalpha():
+                    continue  # 英文单词中间不切
+                if prev_char.isalpha() and not next_char.isalpha():
+                    score += 30  # 英文单词结尾
+                if not prev_char.isalpha() and next_char.isalpha():
+                    score += 20  # 英文单词开头
 
-        return self._dedupe_and_fix_segment_timing(segments)
+            # 中文助词后
+            if prev_char in "的了呢吧啊吗着过":
+                score += 25
+
+            # 中文语气词前
+            if next_char in "那么但是而且所以因为然后":
+                score += 20
+
+            # 偏好更接近 max_chars 的 70% 处
+            distance_from_70 = abs(char_pos - int(max_chars * 0.7))
+            score += max(0, 10 - distance_from_70 // 2)
+
+            if score > best_score:
+                best_score = score
+                best_pos = i
+
+        # 如果没找到好的切分点，就在中间切
+        if best_pos == 0:
+            best_pos = max(1, len(items) // 2)
+
+        return best_pos
 
     def _expand_subtitle_char_timestamps(
         self,
@@ -2109,9 +2694,13 @@ class SenseVoiceTranscriber:
         total_chars = len(raw_text)
 
         if total_chars == 0:
+            t_start = char_timestamps[0].start
+            t_end = char_timestamps[-1].end
+            if t_end <= t_start:
+                t_end = t_start + 0.1
             return [TranscriptionSegment(
-                start_time=char_timestamps[0].start,
-                end_time=char_timestamps[-1].end,
+                start_time=t_start,
+                end_time=t_end,
                 text=punctuated_text.strip(),
                 confidence=0.95,
             )]
@@ -2197,9 +2786,12 @@ class SenseVoiceTranscriber:
         merged = []
         for seg in segments:
             if merged and len(self._SEGMENT_PUNCT_RE.sub('', seg.text)) < 4:
+                new_end = max(seg.end_time, merged[-1].end_time)
+                if new_end <= merged[-1].start_time:
+                    new_end = merged[-1].start_time + 0.1
                 merged[-1] = TranscriptionSegment(
                     start_time=merged[-1].start_time,
-                    end_time=seg.end_time,
+                    end_time=new_end,
                     text=merged[-1].text + seg.text,
                     confidence=0.95,
                 )
@@ -2252,18 +2844,39 @@ class SenseVoiceTranscriber:
             merged_char_ts = [CharTimestamp(**ts) for ts in raw_ts]
             logger.info(f"合并后逐字时间戳: {len(merged_char_ts)} 个")
 
-        # 后处理：清理特殊标记和添加标点符号
-        final_text = merged_result.get("text", "")
-        if final_text:
-            final_text = self._clean_special_tokens(final_text)
-            if self.enable_punctuation:
-                try:
-                    final_text = self._add_punctuation(final_text, language)
-                except Exception as e:
-                    logger.warning(f"标点符号处理失败: {e}")
+        # 后处理：清理特殊标记
+        raw_text = merged_result.get("text", "")
+        if raw_text:
+            raw_text = self._clean_special_tokens(raw_text)
 
-        # 构建字幕 segments：只使用 SenseVoice 原始时间戳，保留 final_text 标点处理结果
-        segments = self._build_subtitle_segments_from_raw_ts(merged_char_ts, final_text)
+        # 添加标点符号（仅用于确定断句位置）
+        punctuated_text = raw_text
+        if raw_text and self.enable_punctuation:
+            try:
+                punctuated_text = self._add_punctuation(raw_text, language)
+            except Exception as e:
+                logger.warning(f"标点符号处理失败: {e}")
+
+        # 构建字幕 segments：标点断句 → 去标点 → 时间对齐
+        segments = []
+        if timestamp_mode in ("char", "sentence") and merged_char_ts:
+            try:
+                logger.info(f"开始构建字幕 segments: raw_text 长度={len(raw_text)}, "
+                           f"punctuated_text 长度={len(punctuated_text)}, "
+                           f"char_ts 数量={len(merged_char_ts)}")
+                segments = self._build_segments_by_punctuation_then_align(
+                    raw_text, punctuated_text, merged_char_ts
+                )
+                logger.info(f"构建字幕 segments 成功: {len(segments)} 个片段")
+            except Exception as e:
+                logger.error(f"构建字幕 segments 失败: {e}")
+                import traceback
+                logger.error(traceback.format_exc())
+                # 回退到简单的 segments
+                segments = []
+
+        # 最终文本使用原始文本（不含标点）
+        final_text = raw_text
 
         processing_time = time.time() - start_time
         logger.info(f"分块转录完成，总耗时: {processing_time:.2f}秒")

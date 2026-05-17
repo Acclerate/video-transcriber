@@ -64,6 +64,11 @@ class Settings(BaseSettings):
     DEFAULT_TEMPERATURE: float = 0.0
     ENABLE_WORD_TIMESTAMPS: bool = False
 
+    # FA (强制对齐) 时间偏移配置（秒）
+    # 正值延迟字幕，负值提前字幕
+    # 例如：FA_TIME_OFFSET=0.2 延迟 200ms，FA_TIME_OFFSET=-0.2 提前 200ms
+    FA_TIME_OFFSET: float = 0.0
+
     # 文本后处理配置
     # 是否添加标点符号（使用FunASR的punctuation模型）
     ENABLE_PUNCTUATION: bool = True

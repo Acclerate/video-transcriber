@@ -266,6 +266,11 @@ class ForcedAligner:
         if not timestamps or not text:
             return text, []
 
+        if timestamps:
+            raw_first = timestamps[0] if isinstance(timestamps[0], (list, tuple)) else (0, 0)
+            raw_last = timestamps[-1] if isinstance(timestamps[-1], (list, tuple)) else (0, 0)
+            logger.debug(f"FA raw: text_len={len(text)}, timestamps={len(timestamps)}, first={raw_first}, last={raw_last}")
+
         spaced_tokens = [token for token in text.split() if token]
         if len(spaced_tokens) == len(timestamps):
             token_timestamps: List[CharTimestamp] = []
@@ -274,7 +279,10 @@ class ForcedAligner:
                 if seconds is None:
                     continue
                 token_timestamps.append(self._timestamp_token(token, *seconds))
-            return ''.join(spaced_tokens), expand_char_timestamps_syllable_aware(token_timestamps)
+            expanded = expand_char_timestamps_syllable_aware(token_timestamps)
+            combined_text = ''.join(spaced_tokens)
+            logger.debug(f"FA token expand: {len(timestamps)} tokens -> {len(expanded)} chars")
+            return combined_text, expanded
 
         compact_text = ''.join(ch for ch in text if ch.strip())
         char_timestamps: List[CharTimestamp] = []
