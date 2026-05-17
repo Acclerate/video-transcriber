@@ -380,7 +380,7 @@ def bundle_web_assets(app_dir: Path) -> None:
 def download_model(models_cache_dir: Path, app_dir: Path, python_dir: Path,
                    target_platform: str, cross_build: bool) -> None:
     """[Step 7] 预下载 SenseVoice 模型"""
-    # 检查是否已有模型
+    # 检查输出目录是否已有模型
     model_marker = models_cache_dir / "iic" / "SenseVoiceSmall"
     if model_marker.exists() and any(model_marker.rglob("*.pt")):
         print("  [跳过] 模型已存在")
@@ -388,6 +388,18 @@ def download_model(models_cache_dir: Path, app_dir: Path, python_dir: Path,
 
     if cross_build:
         print("  [交叉构建] 模型将在目标机器上由 setup.sh 下载")
+        return
+
+    # 先尝试从项目根目录复制已有模型
+    src_model = PROJECT_ROOT / "models_cache" / "iic" / "SenseVoiceSmall"
+    if src_model.exists() and any(src_model.rglob("*.pt")):
+        print("  从本地缓存复制模型 ...")
+        dst_model = models_cache_dir / "iic" / "SenseVoiceSmall"
+        if dst_model.exists():
+            shutil.rmtree(dst_model)
+        shutil.copytree(src_model, dst_model)
+        model_size = sum(f.stat().st_size for f in dst_model.rglob("*") if f.is_file())
+        print(f"  完成: {model_size / (1024**2):.1f} MB")
         return
 
     python_exe = (
@@ -678,9 +690,19 @@ def main():
         print("\n[9] [跳过] 压缩 (--skip-compress)")
 
     # 统计
-    total_size = sum(f.stat().st_size for f in output_dir.rglob("*") if f.is_file())
     total_time = time.time() - build_start
-    print(f"\n  包大小: {total_size / (1024 ** 3):.2f} GB (未压缩)")
+    try:
+        du_result = subprocess.run(
+            ["du", "-sb", str(output_dir)], capture_output=True, text=True, timeout=30
+        )
+        total_size = int(du_result.stdout.split()[0])
+    except Exception:
+        try:
+            total_size = sum(f.stat().st_size for f in output_dir.rglob("*") if f.is_file())
+        except Exception:
+            total_size = 0
+    size_str = f"{total_size / (1024 ** 3):.2f} GB" if total_size else "unknown"
+    print(f"\n  包大小: {size_str} (未压缩)")
     print(f"  总耗时: {total_time:.0f}s ({total_time/60:.1f}m)")
     print(f"\n  构建完成!")
 

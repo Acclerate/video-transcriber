@@ -5,6 +5,7 @@ SenseVoice 语音转录器
 """
 
 import os
+import re
 import time
 import asyncio
 import threading
@@ -51,6 +52,9 @@ except ImportError:
 
 class SenseVoiceTranscriber:
     """SenseVoice 语音转录器"""
+
+    # 句子内标点（用于合并短 segments 时过滤）
+    _SEGMENT_PUNCT_RE = re.compile(r'[，。！？、；：""''（）()【】《》…—,.!?\s-]')
 
     # 支持的模型配置
     MODEL_CONFIGS = {
@@ -206,8 +210,6 @@ class SenseVoiceTranscriber:
 
     def _load_model_sync(self) -> Any:
         """同步加载模型"""
-        import time
-        import os
 
         config = self.MODEL_CONFIGS.get(self.model_name)
         if not config:
@@ -379,8 +381,6 @@ class SenseVoiceTranscriber:
         Returns:
             清理后的文本
         """
-        import re
-
         if not text or not self.clean_special_tokens:
             return text
 
@@ -602,7 +602,6 @@ class SenseVoiceTranscriber:
         timestamp_mode: str = "none"
     ) -> TranscriptionResult:
         """同步执行转录"""
-        import time
         start_time = time.time()
 
         try:
@@ -655,24 +654,7 @@ class SenseVoiceTranscriber:
             # ========== 音频分块处理结束 ==========
 
             # SenseVoice 推理参数
-            # 使用较小的 batch_size_s 适配 8GB 显存
-            rec_config_kwargs = {
-                "batch_size_s": 60,   # 每段60秒，避免 OOM
-                "merge_vad": True,    # 合并 vad
-                "merge_length_s": 5,  # 合并长度
-                "device": self.device, # 确保使用正确的设备
-            }
-
-            # 语言检测参数
-            if language_str != "auto":
-                rec_config_kwargs["language"] = language_str
-            else:
-                rec_config_kwargs["language"] = "auto"  # 自动检测语言
-
-            # 逐字时间戳模式：启用 output_timestamp
-            if actual_mode == "char":
-                rec_config_kwargs["output_timestamp"] = True
-                logger.info("已启用 output_timestamp 逐字时间戳模式")
+            rec_config_kwargs = self._build_rec_config(language_str, actual_mode)
 
             # 执行推理
             logger.info("正在执行 SenseVoice 推理...")
@@ -851,7 +833,7 @@ class SenseVoiceTranscriber:
             elif isinstance(first_result, dict) and "words" in first_result:
                 is_char_timestamp_format = True
 
-            if is_char_timestamp_format and actual_mode == "char":
+            if is_char_timestamp_format and actual_mode in ("char", "sentence"):
                 logger.info("检测到逐字时间戳格式结果 (output_timestamp=True)")
                 try:
                     # 将 first_result 统一为列表
@@ -927,7 +909,7 @@ class SenseVoiceTranscriber:
                                 ))
 
                     char_timestamps = all_char_ts
-                    logger.info(f"逐字时间戳提取完成: 共 {len(char_timestamps)} 个字/词")
+                    logger.info(f"时间戳提取完成: 共 {len(segments)} 个片段, {len(all_char_ts)} 个字/词")
 
                 except Exception as e:
                     logger.error(f"处理逐字时间戳结果时出错: {e}")
@@ -1140,6 +1122,12 @@ class SenseVoiceTranscriber:
                     except Exception as e:
                         logger.warning(f"标点符号后处理失败: {e}，使用原始文本")
 
+                # 步骤3: 从 char_timestamps 重建句级 segments（覆盖 VAD 级 segments）
+                if actual_mode in ("char", "sentence") and char_timestamps:
+                    rebuilt = self._build_segments_from_char_ts(char_timestamps, text)
+                    if rebuilt:
+                        segments = rebuilt
+
             # 最终验证：确保我们有有效的文本
             if not text or not text.strip():
                 logger.warning(f"转录结果为空！音频文件: {audio_path}")
@@ -1196,9 +1184,6 @@ class SenseVoiceTranscriber:
         Returns:
             TranscriptionResult: 转录结果
         """
-        import time
-        import os
-        import asyncio
 
         try:
             # 分割音频 - 同步调用
@@ -1275,42 +1260,8 @@ class SenseVoiceTranscriber:
                 overlap_seconds=self.chunk_overlap_seconds
             )
 
-            # 提取合并后的逐字时间戳
-            merged_char_timestamps = []
-            if timestamp_mode == "char":
-                raw_char_ts = merged_result.get("char_timestamps", [])
-                for ts in raw_char_ts:
-                    merged_char_timestamps.append(CharTimestamp(
-                        word=ts["word"], start=ts["start"], end=ts["end"]
-                    ))
-                logger.info(f"合并后逐字时间戳: {len(merged_char_timestamps)} 个")
-
-            # 后处理：清理特殊标记和添加标点符号
-            final_text = merged_result.get("text", "")
-
-            if final_text:
-                # 清理特殊标记
-                final_text = self._clean_special_tokens(final_text)
-
-                # 添加标点符号（如果启用）
-                if self.enable_punctuation:
-                    try:
-                        final_text = self._add_punctuation(final_text, language)
-                    except Exception as e:
-                        logger.warning(f"标点符号处理失败: {e}")
-
-            # 构建最终的 TranscriptionResult
-            processing_time = time.time() - start_time
-            logger.info(f"分块转录完成，总耗时: {processing_time:.2f}秒")
-
-            return TranscriptionResult(
-                text=final_text.strip(),
-                language=merged_result.get("language", language),
-                confidence=merged_result.get("confidence", 0.95),
-                segments=[],
-                processing_time=processing_time,
-                whisper_model=self.model_name,
-                char_timestamps=merged_char_timestamps
+            return self._postprocess_chunked_result(
+                merged_result, language, timestamp_mode, start_time
             )
 
         except Exception as e:
@@ -1342,7 +1293,6 @@ class SenseVoiceTranscriber:
         Returns:
             dict: 转录结果
         """
-        import time
 
         try:
             start = time.time()
@@ -1355,21 +1305,7 @@ class SenseVoiceTranscriber:
             logger.debug(f"处理音频块: {chunk_path}, 大小: {file_size} 字节")
 
             # SenseVoice 推理参数
-            rec_config_kwargs = {
-                "batch_size_s": 60,   # 每段60秒，避免 OOM
-                "merge_vad": True,
-                "merge_length_s": 5,
-                "device": self.device,  # 确保使用正确的设备
-            }
-
-            if language != "auto":
-                rec_config_kwargs["language"] = language
-            else:
-                rec_config_kwargs["language"] = "auto"
-
-            # 逐字时间戳模式
-            if timestamp_mode == "char":
-                rec_config_kwargs["output_timestamp"] = True
+            rec_config_kwargs = self._build_rec_config(language, timestamp_mode)
 
             # 执行推理
             result = self.model.generate(
@@ -1385,7 +1321,7 @@ class SenseVoiceTranscriber:
 
             # 提取逐字时间戳（如果启用）
             char_ts_list = []
-            if timestamp_mode == "char":
+            if timestamp_mode in ("char", "sentence"):
                 char_ts_list = self._extract_char_ts_from_raw_result(result, chunk_start)
 
             return {
@@ -1409,7 +1345,8 @@ class SenseVoiceTranscriber:
         language: str,
         with_timestamps: bool,
         progress_callback: Optional[Callable[[float], None]],
-        start_time: float
+        start_time: float,
+        timestamp_mode: str = "none"
     ) -> TranscriptionResult:
         """
         使用分块处理转录长音频
@@ -1420,12 +1357,11 @@ class SenseVoiceTranscriber:
             with_timestamps: 是否包含时间戳
             progress_callback: 进度回调
             start_time: 开始时间
+            timestamp_mode: 时间戳模式
 
         Returns:
             TranscriptionResult: 转录结果
         """
-        import time
-        import os
 
         try:
             # 分割音频
@@ -1455,7 +1391,8 @@ class SenseVoiceTranscriber:
 
                     # 处理单个块
                     chunk_result = await self._transcribe_single_chunk(
-                        chunk_path, language, with_timestamps, chunk_start, chunk_end
+                        chunk_path, language, with_timestamps, chunk_start, chunk_end,
+                        timestamp_mode=timestamp_mode
                     )
                     chunk_results.append(chunk_result)
 
@@ -1487,31 +1424,8 @@ class SenseVoiceTranscriber:
                 overlap_seconds=self.chunk_overlap_seconds
             )
 
-            # 后处理：清理特殊标记和添加标点符号
-            final_text = merged_result.get("text", "")
-
-            if final_text:
-                # 清理特殊标记
-                final_text = self._clean_special_tokens(final_text)
-
-                # 添加标点符号（如果启用）
-                if self.enable_punctuation:
-                    try:
-                        final_text = self._add_punctuation(final_text, language)
-                    except Exception as e:
-                        logger.warning(f"标点符号处理失败: {e}")
-
-            # 构建最终的 TranscriptionResult
-            processing_time = time.time() - start_time
-            logger.info(f"分块转录完成，总耗时: {processing_time:.2f}秒")
-
-            return TranscriptionResult(
-                text=final_text.strip(),
-                language=merged_result.get("language", language),
-                confidence=merged_result.get("confidence", 0.95),
-                segments=[],
-                processing_time=processing_time,
-                whisper_model=self.model_name
+            return self._postprocess_chunked_result(
+                merged_result, language, timestamp_mode, start_time
             )
 
         except Exception as e:
@@ -1526,7 +1440,8 @@ class SenseVoiceTranscriber:
         language: str,
         with_timestamps: bool,
         chunk_start: float,
-        chunk_end: float
+        chunk_end: float,
+        timestamp_mode: str = "none"
     ) -> dict:
         """
         转录单个音频块
@@ -1537,11 +1452,11 @@ class SenseVoiceTranscriber:
             with_timestamps: 是否包含时间戳
             chunk_start: 块开始时间
             chunk_end: 块结束时间
+            timestamp_mode: 时间戳模式
 
         Returns:
             dict: 转录结果
         """
-        import time
 
         try:
             start = time.time()
@@ -1554,17 +1469,7 @@ class SenseVoiceTranscriber:
             logger.debug(f"处理音频块: {chunk_path}, 大小: {file_size} 字节")
 
             # SenseVoice 推理参数
-            rec_config_kwargs = {
-                "batch_size_s": 60,   # 每段60秒，避免 OOM
-                "merge_vad": True,
-                "merge_length_s": 5,
-                "device": self.device,  # 确保使用正确的设备
-            }
-
-            if language != "auto":
-                rec_config_kwargs["language"] = language
-            else:
-                rec_config_kwargs["language"] = "auto"
+            rec_config_kwargs = self._build_rec_config(language, timestamp_mode)
 
             # 执行推理
             result = self.model.generate(
@@ -1578,6 +1483,11 @@ class SenseVoiceTranscriber:
             # 提取文本
             text = self._extract_text_from_result(result)
 
+            # 提取逐字时间戳（如果启用）
+            char_ts_list = []
+            if timestamp_mode in ("char", "sentence"):
+                char_ts_list = self._extract_char_ts_from_raw_result(result, chunk_start)
+
             return {
                 "text": text,
                 "segments": [],
@@ -1585,7 +1495,8 @@ class SenseVoiceTranscriber:
                 "confidence": 0.95,
                 "processing_time": processing_time,
                 "start_time": chunk_start,
-                "end_time": chunk_end
+                "end_time": chunk_end,
+                "char_timestamps": char_ts_list
             }
 
         except Exception as e:
@@ -1669,6 +1580,186 @@ class SenseVoiceTranscriber:
             logger.warning(f"提取文本时出错: {e}")
 
         return text
+
+    def _build_rec_config(self, language: str, timestamp_mode: str = "none") -> dict:
+        """构建 SenseVoice 推理参数（消除多处重复）"""
+        kwargs = {
+            "batch_size_s": 60,
+            "merge_vad": True,
+            "merge_length_s": 5,
+            "device": self.device,
+        }
+        kwargs["language"] = language
+        if timestamp_mode in ("char", "sentence"):
+            kwargs["output_timestamp"] = True
+            logger.info(f"已启用 output_timestamp 时间戳模式: {timestamp_mode}")
+        return kwargs
+
+    def _build_segments_from_char_ts(
+        self,
+        char_timestamps: List[CharTimestamp],
+        punctuated_text: str,
+    ) -> List[TranscriptionSegment]:
+        """
+        从 char_timestamps 和带标点的文本构建 segments。
+
+        关键: char_timestamps[i].word 可能是多字符 (如 "assistant")，
+        所以 raw_text 有 N 个字符但只有 M 个 timestamp (N > M)。
+        必须先建立 字符位置→时间 的映射，再查找。
+        """
+        if not char_timestamps:
+            return []
+
+        # ---- 第0步: 建立 raw_text 每个字符位置 → 时间的映射 ----
+        char_time_map = []
+        for ts in char_timestamps:
+            for _ in range(len(ts.word)):
+                char_time_map.append((ts.start, ts.end))
+
+        raw_text = "".join(ts.word for ts in char_timestamps)
+        total_chars = len(raw_text)
+
+        if total_chars == 0:
+            return [TranscriptionSegment(
+                start_time=char_timestamps[0].start,
+                end_time=char_timestamps[-1].end,
+                text=punctuated_text.strip(),
+                confidence=0.95,
+            )]
+
+        def char_pos_to_time(pos: int):
+            pos = max(0, min(pos, total_chars - 1))
+            return char_time_map[pos]
+
+        # ---- 第1步: 建立 punctuated_text -> raw_text 字符位置映射 ----
+        #    带前向搜索（标点模型可能插入字符）和比例回退（标点模型修改文本时）
+        punct_to_char = []
+        char_idx = 0
+
+        for i, ch in enumerate(punctuated_text):
+            if char_idx < total_chars and ch == raw_text[char_idx]:
+                punct_to_char.append(char_idx)
+                char_idx += 1
+            else:
+                # 前向搜索: 标点模型可能插入了字符，跳过 raw_text 中少量不匹配字符
+                found = False
+                for ahead in range(1, 6):
+                    pos = char_idx + ahead
+                    if pos < total_chars and ch == raw_text[pos]:
+                        punct_to_char.append(pos)
+                        char_idx = pos + 1
+                        found = True
+                        break
+                if not found:
+                    punct_to_char.append(min(char_idx, total_chars - 1))
+
+        # 对齐质量检查: 若匹配率 < 80%，回退到比例映射
+        aligned_count = char_idx
+        if total_chars > 0 and aligned_count < total_chars * 0.8:
+            logger.warning(
+                f"标点文本与原始文本对齐率低: {aligned_count}/{total_chars} "
+                f"({aligned_count / total_chars * 100:.1f}%)，回退到比例时间映射"
+            )
+            punct_len = max(len(punctuated_text) - 1, 1)
+            punct_to_char = [
+                min(int(total_chars * i / punct_len), total_chars - 1)
+                for i in range(len(punctuated_text))
+            ]
+
+        # ---- 第2步: 按标点切分句子 ----
+        sent_enders = set("。！？；\n")
+        sentence_spans = []
+        buf_start = 0
+        for i, ch in enumerate(punctuated_text):
+            if ch in sent_enders:
+                if i + 1 > buf_start:
+                    sentence_spans.append((buf_start, i + 1))
+                buf_start = i + 1
+            elif i == len(punctuated_text) - 1 and i + 1 > buf_start:
+                sentence_spans.append((buf_start, i + 1))
+
+        if not sentence_spans:
+            sentence_spans = [(0, len(punctuated_text))]
+
+        # ---- 第3步: 用精确时间构建 segments ----
+        segments = []
+        for (s_start, s_end) in sentence_spans:
+            sent_text = punctuated_text[s_start:s_end].strip()
+            if not sent_text:
+                continue
+
+            c_start = punct_to_char[min(s_start, len(punct_to_char) - 1)]
+            c_end = punct_to_char[min(s_end - 1, len(punct_to_char) - 1)]
+
+            t_start, _ = char_pos_to_time(c_start)
+            _, t_end = char_pos_to_time(c_end)
+
+            if t_end <= t_start:
+                t_end = t_start + 0.1
+
+            segments.append(TranscriptionSegment(
+                start_time=round(t_start, 3),
+                end_time=round(t_end, 3),
+                text=sent_text,
+                confidence=0.95,
+            ))
+
+        # ---- 第4步: 合并过短的 segments ----
+        merged = []
+        for seg in segments:
+            if merged and len(self._SEGMENT_PUNCT_RE.sub('', seg.text)) < 10:
+                merged[-1] = TranscriptionSegment(
+                    start_time=merged[-1].start_time,
+                    end_time=seg.end_time,
+                    text=merged[-1].text + seg.text,
+                    confidence=0.95,
+                )
+            else:
+                merged.append(seg)
+
+        logger.info(f"从 char_timestamps 构建 {len(merged)} 个 segments")
+        return merged
+
+    def _postprocess_chunked_result(
+        self,
+        merged_result: dict,
+        language: str,
+        timestamp_mode: str,
+        start_time: float,
+    ) -> TranscriptionResult:
+        """对分块合并结果进行后处理并构建最终的 TranscriptionResult（sync/async 共用）"""
+        # 提取逐字时间戳
+        merged_char_ts = []
+        if timestamp_mode in ("char", "sentence"):
+            raw_ts = merged_result.get("char_timestamps", [])
+            merged_char_ts = [CharTimestamp(**ts) for ts in raw_ts]
+            logger.info(f"合并后逐字时间戳: {len(merged_char_ts)} 个")
+
+        # 后处理：清理特殊标记和添加标点符号
+        final_text = merged_result.get("text", "")
+        if final_text:
+            final_text = self._clean_special_tokens(final_text)
+            if self.enable_punctuation:
+                try:
+                    final_text = self._add_punctuation(final_text, language)
+                except Exception as e:
+                    logger.warning(f"标点符号处理失败: {e}")
+
+        # 构建带时间戳的 segments
+        segments = self._build_segments_from_char_ts(merged_char_ts, final_text)
+
+        processing_time = time.time() - start_time
+        logger.info(f"分块转录完成，总耗时: {processing_time:.2f}秒")
+
+        return TranscriptionResult(
+            text=final_text.strip(),
+            language=merged_result.get("language", language),
+            confidence=merged_result.get("confidence", 0.95),
+            segments=segments,
+            char_timestamps=merged_char_ts,
+            processing_time=processing_time,
+            whisper_model=self.model_name,
+        )
 
     def _extract_char_ts_from_raw_result(
         self, result, time_offset: float = 0.0

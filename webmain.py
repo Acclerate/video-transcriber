@@ -8,6 +8,10 @@ import os
 os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
 
 import sys
+if sys.platform == 'win32':
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+
 import asyncio
 import argparse
 from pathlib import Path
@@ -30,6 +34,7 @@ from services import TranscriptionService
 from utils.logging import setup_default_logger
 from utils.file import format_duration, format_file_size
 from utils.ffmpeg import check_ffmpeg_installed, get_ffmpeg_help_message
+from utils.output_formatter import format_output
 
 # 加载环境变量
 load_dotenv()
@@ -126,7 +131,20 @@ def print_model_info():
     console.print(table)
 
 
-@click.group()
+class DefaultCommandGroup(click.Group):
+    """当第一个非选项参数不是已知子命令时，自动走 transcribe"""
+
+    def parse_args(self, ctx, args):
+        if args:
+            first = args[0]
+            if not first.startswith('-') and first not in self.commands:
+                args = ['transcribe'] + list(args)
+            elif not first.startswith('-') and first in self.commands and Path(first).exists():
+                args = ['transcribe'] + list(args)
+        return super().parse_args(ctx, args)
+
+
+@click.group(cls=DefaultCommandGroup)
 @click.option('--debug', is_flag=True, help='启用调试模式')
 @click.option('--log-level', default='INFO', help='日志级别')
 @click.option('--skip-deps-check', is_flag=True, help='跳过依赖检查（不推荐）')
@@ -158,7 +176,7 @@ def cli(ctx, debug, log_level, skip_deps_check):
               default='sensevoice-small', help='语音识别模型 (默认: sensevoice-small)')
 @click.option('--language', '-l',
               type=click.Choice(['auto', 'zh', 'en', 'ja', 'ko', 'es', 'fr', 'de', 'ru']),
-              default='auto', help='目标语言 (默认: auto)')
+              default='zh', help='目标语言 (默认: zh)')
 @click.option('--output', '-o', help='输出文件路径')
 @click.option('--format', '-f', 'output_format',
               type=click.Choice(['json', 'txt', 'srt', 'vtt', 'char_json', 'volc_json']),
@@ -180,15 +198,7 @@ async def _transcribe_single(file_path, model, language, output, output_format, 
             print_banner()
             console.print(f"[bold green]开始处理文件:[/bold green] {file_path}")
 
-        # 验证文件
         file_path_obj = Path(file_path)
-        if not file_path_obj.exists():
-            console.print("[bold red]错误:[/bold red] 文件不存在")
-            sys.exit(1)
-
-        if not file_path_obj.is_file():
-            console.print("[bold red]错误:[/bold red] 路径不是文件")
-            sys.exit(1)
 
         # 解析 timestamp_mode，向后兼容 --timestamps 标志
         try:
@@ -226,36 +236,28 @@ async def _transcribe_single(file_path, model, language, output, output_format, 
             )
 
         # 处理输出
-        if output_format == 'json':
-            output_text = result.model_dump_json(indent=2)
-        else:
-            from utils.output_formatter import format_output
-            output_text = format_output(result, OutputFormat(output_format))
+        output_text = format_output(result, OutputFormat(output_format))
 
-        # 保存或显示结果
+        # 保存结果
         if output:
             output_path = Path(output)
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-
-            with open(output_path, 'w', encoding='utf-8') as f:
-                f.write(output_text)
-
-            if not quiet:
-                console.print(f"[bold green]结果已保存到:[/bold green] {output}")
         else:
-            if not quiet:
-                console.print("\n[bold yellow]转录结果:[/bold yellow]")
-                console.print(Panel(output_text, title="转录内容", border_style="green"))
-            else:
-                print(output_text)
+            output_path = file_path_obj.with_suffix(OutputFormat(output_format).extension)
+
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        with open(output_path, 'w', encoding='utf-8') as f:
+            f.write(output_text)
 
         if not quiet:
+            console.print(f"[bold green]结果已保存到:[/bold green] {output_path}")
+
             # 显示统计信息
             stats_table = Table(show_header=False, box=None)
             stats_table.add_row("🎯 置信度:", f"{result.confidence:.1%}")
             stats_table.add_row("🌍 检测语言:", result.language)
             stats_table.add_row("⏱️ 处理时间:", format_duration(result.processing_time))
-            stats_table.add_row("🤖 使用模型:", result.whisper_model.value if hasattr(result, 'whisper_model') else result.model_name if hasattr(result, 'model_name') else 'sensevoice-small')
+            stats_table.add_row("🤖 使用模型:", result.whisper_model.value)
             stats_table.add_row("📝 文本长度:", f"{len(result.text)} 字符")
 
             console.print("\n[bold blue]处理统计:[/bold blue]")
@@ -276,7 +278,7 @@ async def _transcribe_single(file_path, model, language, output, output_format, 
               default='sensevoice-small', help='语音识别模型')
 @click.option('--language', '-l',
               type=click.Choice(['auto', 'zh', 'en', 'ja', 'ko']),
-              default='auto', help='目标语言')
+              default='zh', help='目标语言 (默认: zh)')
 @click.option('--output-dir', '-d', help='输出目录')
 @click.option('--format', '-f', 'output_format',
               type=click.Choice(['json', 'txt', 'srt', 'vtt', 'char_json', 'volc_json']),
@@ -373,14 +375,11 @@ async def _transcribe_batch(file_path, model, language, output_dir, output_forma
                 safe_title = task_info.media_info.file_name if task_info.media_info else "unknown"
                 safe_title = "".join(c for c in safe_title if c.isalnum() or c in (' ', '-', '_')).strip()
 
-                output_file = output_path / f"{safe_title}_{task_info.task_id[-8:]}.{output_format}"
+                fmt = OutputFormat(output_format)
+                output_file = output_path / f"{safe_title}_{task_info.task_id[-8:]}{fmt.extension}"
 
                 # 格式化输出
-                if output_format == 'json':
-                    output_text = task_info.result.model_dump_json(indent=2)
-                else:
-                    from utils.output_formatter import format_output
-                    output_text = format_output(task_info.result, OutputFormat(output_format))
+                output_text = format_output(task_info.result, fmt)
 
                 # 保存文件
                 with open(output_file, 'w', encoding='utf-8') as f:

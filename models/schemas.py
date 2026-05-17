@@ -26,6 +26,16 @@ class TranscriptionModel(str, Enum):
     SENSEVOICE_SMALL = "sensevoice-small"  # SenseVoice多语言模型，中文优化
 
 
+_OUTPUT_FORMAT_EXTENSIONS = {
+    "json": ".json",
+    "txt": ".txt",
+    "srt": ".srt",
+    "vtt": ".vtt",
+    "char_json": ".char.json",
+    "volc_json": ".volc.json",
+}
+
+
 class OutputFormat(str, Enum):
     """输出格式"""
     JSON = "json"
@@ -34,6 +44,10 @@ class OutputFormat(str, Enum):
     VTT = "vtt"
     CHAR_JSON = "char_json"
     VOLC_JSON = "volc_json"
+
+    @property
+    def extension(self) -> str:
+        return _OUTPUT_FORMAT_EXTENSIONS.get(self.value, ".txt")
 
 
 class TimestampMode(str, Enum):
