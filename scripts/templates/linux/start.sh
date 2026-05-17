@@ -10,9 +10,20 @@ export MODELSCOPE_CACHE="$SCRIPT_DIR/models_cache"
 
 mkdir -p "$SCRIPT_DIR/temp" "$SCRIPT_DIR/output" "$SCRIPT_DIR/logs"
 
+# 联网轻量版：首次启动时自动下载 FFmpeg 和模型
+SETUP_SCRIPT="$SCRIPT_DIR/app/setup_runtime.py"
+if [ -f "$SETUP_SCRIPT" ]; then
+    PYTHON="$SCRIPT_DIR/python/bin/python"
+    echo "  [检查] 运行环境组件 ..."
+    "$PYTHON" "$SETUP_SCRIPT" --check 2>/dev/null || {
+        echo "  缺失组件，开始自动下载 ..."
+        "$PYTHON" "$SETUP_SCRIPT"
+    }
+fi
+
 cd "$SCRIPT_DIR/app"
 
-PYTHON="$SCRIPT_DIR/python/bin/python"
+PYTHON="${PYTHON:-$SCRIPT_DIR/python/bin/python}"
 
 echo ""
 echo "  ============================================"

@@ -329,7 +329,7 @@ def download_ffmpeg_linux(ffmpeg_dir: Path) -> None:
 def copy_app_source(app_dir: Path) -> None:
     """[Step 5] 复制项目源码"""
     source_dirs = ["api", "core", "services", "models", "config", "utils", "web"]
-    source_files = ["webmain.py"]
+    source_files = ["webmain.py", "setup_runtime.py"]
 
     for d in source_dirs:
         src = PROJECT_ROOT / d
@@ -410,7 +410,7 @@ def bundle_web_assets(app_dir: Path) -> None:
         '', content
     )
     content = re.sub(
-        r'<link href="https://fonts\.googleapis\.com/css2[^"]*"[^>]*/>',
+        r'<link href="https://fonts\.googleapis\.com/css2[^"]*"[^>]*>',
         '<link href="/static/vendor/fonts/fonts.css" rel="stylesheet">', content
     )
 
@@ -500,8 +500,44 @@ def create_launchers(output_dir: Path, target_platform: str,
             _create_linux_setup_sh(output_dir)
 
 
-def create_env_file(output_dir: Path) -> None:
+def create_env_file(output_dir: Path, lite: bool = False) -> None:
     """[Step 8b] 生成 .env 配置文件"""
+    env_content = """\
+# Video Transcriber - 便携部署配置
+HOST=0.0.0.0
+PORT=8665
+DEBUG=false
+
+# 模型
+DEFAULT_MODEL=sensevoice-small
+DEFAULT_LANGUAGE=zh
+ENABLE_GPU=false
+MODEL_CACHE_DIR=./models_cache
+
+# 音频分块
+ENABLE_AUDIO_CHUNKING=true
+CHUNK_DURATION_SECONDS=300
+CHUNK_OVERLAP_SECONDS=1
+MIN_DURATION_FOR_CHUNKING=30
+
+# 文件路径
+TEMP_DIR=./temp
+OUTPUT_DIR=./output
+
+# 日志
+LOG_LEVEL=INFO
+LOG_DIR=./logs
+LOG_FILE=./logs/app.log
+LOG_TO_CONSOLE=true
+
+# 任务
+MAX_CONCURRENT_TASKS=3
+TASK_TIMEOUT=3600
+
+# 运行时
+AUTO_SETUP=true
+"""
+    (output_dir / ".env").write_text(env_content, encoding="utf-8")
 
 
 def _create_linux_setup_sh(output_dir: Path) -> None:
@@ -572,39 +608,6 @@ echo ""
     except Exception:
         pass
     print("  已生成 setup.sh (在目标 Linux 机器上运行以完成安装)")
-    env_content = """\
-# Video Transcriber - 便携部署配置
-HOST=0.0.0.0
-PORT=8665
-DEBUG=false
-
-# 模型
-DEFAULT_MODEL=sensevoice-small
-DEFAULT_LANGUAGE=zh
-ENABLE_GPU=false
-MODEL_CACHE_DIR=./models_cache
-
-# 音频分块
-ENABLE_AUDIO_CHUNKING=true
-CHUNK_DURATION_SECONDS=300
-CHUNK_OVERLAP_SECONDS=1
-MIN_DURATION_FOR_CHUNKING=30
-
-# 文件路径
-TEMP_DIR=./temp
-OUTPUT_DIR=./output
-
-# 日志
-LOG_LEVEL=INFO
-LOG_DIR=./logs
-LOG_FILE=./logs/app.log
-LOG_TO_CONSOLE=true
-
-# 任务
-MAX_CONCURRENT_TASKS=3
-TASK_TIMEOUT=3600
-"""
-    (output_dir / ".env").write_text(env_content, encoding="utf-8")
 
 
 def compress_package(output_dir: Path, target_platform: str) -> Path:
@@ -646,6 +649,8 @@ def main():
                         help="跳过压缩")
     parser.add_argument("--skip-deps", action="store_true",
                         help="跳过 Python 环境和依赖安装（仍会补齐 FFmpeg/模型/资源）")
+    parser.add_argument("--lite", action="store_true",
+                        help="联网轻量版：跳过 FFmpeg 和模型下载，首次启动时自动拉取")
     args = parser.parse_args()
 
     target = args.platform
@@ -657,13 +662,15 @@ def main():
 
     output_dir = (
         Path(args.output_dir) if args.output_dir
-        else OUTPUT_BASE / f"video-transcriber-{target}"
+        else OUTPUT_BASE / f"video-transcriber-{target}{'-lite' if args.lite else ''}"
     )
 
     print(f"")
     print(f"  ============================================")
     print(f"    Video Transcriber 便携包构建")
     print(f"    目标平台: {target}")
+    if args.lite:
+        print(f"    ** 联网轻量版 (首次运行自动下载 FFmpeg + 模型) **")
     if cross_build:
         print(f"    ** 交叉构建模式 **")
     if args.skip_deps:
@@ -704,7 +711,9 @@ def main():
               dirs["python"], target, cross_build)
 
     # Step 4
-    if target == "windows":
+    if args.lite:
+        print("\n[4] [跳过] FFmpeg 下载 (--lite 模式，首次运行时自动安装)")
+    elif target == "windows":
         _step(4, "下载 FFmpeg", download_ffmpeg_windows, dirs["ffmpeg"])
     else:
         _step(4, "下载 FFmpeg", download_ffmpeg_linux, dirs["ffmpeg"])
@@ -716,7 +725,9 @@ def main():
     _step(6, "打包离线 Web 资源", bundle_web_assets, dirs["app"])
 
     # Step 7
-    if not args.skip_model:
+    if args.lite:
+        print("\n[7] [跳过] 模型下载 (--lite 模式，首次运行时自动安装)")
+    elif not args.skip_model:
         _step(7, "下载 SenseVoice 模型", download_model,
               dirs["models_cache"], dirs["app"], dirs["python"],
               target, cross_build)
@@ -725,7 +736,7 @@ def main():
 
     # Step 8
     _step(8, "生成启动脚本和配置", create_launchers, output_dir, target, cross_build)
-    create_env_file(output_dir)
+    create_env_file(output_dir, lite=args.lite)
 
     # Step 9
     if not args.skip_compress:
