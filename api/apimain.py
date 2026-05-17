@@ -110,8 +110,9 @@ app.include_router(task_router)
 app.include_router(system_router)
 
 # 静态文件服务
-if os.path.exists("web"):
-    app.mount("/static", StaticFiles(directory="web"), name="static")
+_WEB_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "web")
+if os.path.isdir(_WEB_DIR):
+    app.mount("/static", StaticFiles(directory=_WEB_DIR), name="static")
 
 
 async def background_cleanup():
@@ -144,8 +145,9 @@ async def background_cleanup():
 @app.get("/", response_class=HTMLResponse)
 async def root():
     """根路径，返回Web界面"""
-    if os.path.exists("web/index.html"):
-        return FileResponse("web/index.html")
+    index_html = os.path.join(_WEB_DIR, "index.html")
+    if os.path.exists(index_html):
+        return FileResponse(index_html)
     else:
         return HTMLResponse("""
         <html>

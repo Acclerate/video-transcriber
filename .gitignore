@@ -207,3 +207,6 @@ media/
 *.sock
 *.claude
 nul
+
+# 构建产物
+web/static/vendor/

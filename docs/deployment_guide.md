@@ -31,7 +31,7 @@
 - **GPU**: NVIDIA GPU (可选，用于加速)
 
 ### 软件依赖
-- **Python**: 3.8+
+- **Python**: 3.10+
 - **FFmpeg**: 最新版本
 - **Docker**: 20.10+ (可选)
 - **Docker Compose**: 2.0+ (可选)

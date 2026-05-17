@@ -166,7 +166,7 @@ def cli(ctx, debug, log_level, skip_deps_check):
 @click.option('--timestamps', is_flag=True, help='包含时间戳（已弃用，使用 --timestamp-mode）')
 @click.option('--timestamp-mode', 'timestamp_mode',
               type=click.Choice(['none', 'sentence', 'char']),
-              default='none', help='时间戳模式: none=无, sentence=句级, char=逐字 (默认: none)')
+              default='sentence', help='时间戳模式: none=无, sentence=句级, char=逐字 (默认: sentence)')
 @click.option('--quiet', '-q', is_flag=True, help='静默模式')
 def transcribe(file_path, model, language, output, output_format, timestamps, timestamp_mode, quiet):
     """转录单个媒体文件（视频/音频）"""
@@ -281,14 +281,17 @@ async def _transcribe_single(file_path, model, language, output, output_format, 
 @click.option('--format', '-f', 'output_format',
               type=click.Choice(['json', 'txt', 'srt', 'vtt', 'char_json', 'volc_json']),
               default='txt', help='输出格式')
+@click.option('--timestamp-mode', 'timestamp_mode',
+              type=click.Choice(['none', 'sentence', 'char']),
+              default='sentence', help='时间戳模式 (默认: sentence)')
 @click.option('--max-concurrent', '-c', default=3, help='最大并发数')
 @click.option('--quiet', '-q', is_flag=True, help='静默模式')
-def batch(file_path, model, language, output_dir, output_format, max_concurrent, quiet):
+def batch(file_path, model, language, output_dir, output_format, timestamp_mode, max_concurrent, quiet):
     """批量转录媒体文件（从文件读取文件路径列表）"""
-    asyncio.run(_transcribe_batch(file_path, model, language, output_dir, output_format, max_concurrent, quiet))
+    asyncio.run(_transcribe_batch(file_path, model, language, output_dir, output_format, timestamp_mode, max_concurrent, quiet))
 
 
-async def _transcribe_batch(file_path, model, language, output_dir, output_format, max_concurrent, quiet):
+async def _transcribe_batch(file_path, model, language, output_dir, output_format, timestamp_mode, max_concurrent, quiet):
     """异步批量转录"""
     try:
         if not quiet:
@@ -317,10 +320,16 @@ async def _transcribe_batch(file_path, model, language, output_dir, output_forma
             sys.exit(1)
 
         # 设置选项
+        try:
+            ts_mode = TimestampMode(timestamp_mode)
+        except ValueError:
+            ts_mode = TimestampMode.SENTENCE
+
         options = ProcessOptions(
             model=TranscriptionModel(model),
             language=Language(language),
-            with_timestamps=False,
+            with_timestamps=ts_mode != TimestampMode.NONE,
+            timestamp_mode=ts_mode,
             output_format=OutputFormat(output_format),
             enable_gpu=True,
             temperature=0.0

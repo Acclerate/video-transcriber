@@ -15,35 +15,58 @@ from loguru import logger
 # 防止重复将 ffmpeg 目录添加到 PATH
 _path_configured = False
 
-# 已知的本地 FFmpeg 安装路径（优先级从高到低）
-_LOCAL_FFMPEG_DIRS = [
+# 平台特定的可执行文件名
+if platform.system() == "Windows":
+    _FFMPEG_EXE = "ffmpeg.exe"
+    _FFPROBE_EXE = "ffprobe.exe"
+else:
+    _FFMPEG_EXE = "ffmpeg"
+    _FFPROBE_EXE = "ffprobe"
+
+# 捆绑 FFmpeg 目录（相对于项目根目录）
+_BUNDLED_FFMPEG_DIR = Path(__file__).resolve().parent.parent.parent / "ffmpeg"
+
+# 开发者本地路径
+_DEV_FFMPEG_DIRS = [
     Path("D:/tools/ffmpeg-8.1-essentials_build/bin"),
 ]
 
 
 def _find_local_ffmpeg(name: str) -> Optional[str]:
-    """在已知的本地目录中查找 ffmpeg/ffprobe"""
-    for d in _LOCAL_FFMPEG_DIRS:
+    """查找 ffmpeg/ffprobe：捆绑目录 → 相对目录 → 开发者路径"""
+    # 1. 捆绑目录（便携部署）
+    bundled = _BUNDLED_FFMPEG_DIR / name
+    if bundled.exists():
+        return str(bundled)
+
+    # 2. 相对于当前工作目录（便携部署的另一种布局）
+    cwd_bundled = Path("ffmpeg") / name
+    if cwd_bundled.exists():
+        return str(cwd_bundled.resolve())
+
+    # 3. 开发者本地路径
+    for d in _DEV_FFMPEG_DIRS:
         exe = d / name
         if exe.exists():
             return str(exe)
+
     return None
 
 
 def get_ffmpeg_path() -> Optional[str]:
-    """获取 ffmpeg 可执行文件路径（本地优先，回退到 PATH）"""
-    local = _find_local_ffmpeg("ffmpeg.exe")
+    """获取 ffmpeg 可执行文件路径（捆绑优先，回退到 PATH）"""
+    local = _find_local_ffmpeg(_FFMPEG_EXE)
     if local:
         return local
-    return shutil.which("ffmpeg")
+    return shutil.which(_FFMPEG_EXE)
 
 
 def get_ffprobe_path() -> Optional[str]:
-    """获取 ffprobe 可执行文件路径（本地优先，回退到 PATH）"""
-    local = _find_local_ffmpeg("ffprobe.exe")
+    """获取 ffprobe 可执行文件路径（捆绑优先，回退到 PATH）"""
+    local = _find_local_ffmpeg(_FFPROBE_EXE)
     if local:
         return local
-    return shutil.which("ffprobe")
+    return shutil.which(_FFPROBE_EXE)
 
 
 def check_ffmpeg_installed() -> bool:

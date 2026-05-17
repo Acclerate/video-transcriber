@@ -42,7 +42,7 @@
 ### 2.2 技术栈选型
 
 #### 后端技术栈
-- **编程语言**: Python 3.8–3.11（不支持 3.12+，PyTorch 兼容性限制）
+- **编程语言**: Python 3.10+
 - **Web框架**: FastAPI + Uvicorn
 - **音频处理**: FFmpeg + pydub + librosa
 - **语音识别**: Alibaba SenseVoice (FunASR + ModelScope + PyTorch)
@@ -608,7 +608,7 @@ else:
 ## 8. 部署说明
 
 ### 8.1 环境要求
-- Python 3.8–3.11（推荐 3.10）
+- Python 3.10+（推荐 3.12）
 - FFmpeg
 - CUDA (可选，用于 GPU 加速)
 

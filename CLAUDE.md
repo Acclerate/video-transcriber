@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Video Transcriber — a video-to-text transcription service using Alibaba's SenseVoice model for speech recognition. Optimized for Chinese, supports multilingual transcription. Processes videos locally (privacy-first).
 
-**Python version: 3.8–3.11 (NOT 3.12+, PyTorch incompatibility)**
+**Python version: 3.10+**
 
 ## Common Commands
 

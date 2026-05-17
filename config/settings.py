@@ -54,8 +54,8 @@ class Settings(BaseSettings):
     # ============================================================
     DEFAULT_MODEL: str = "sensevoice-small"  # 使用 SenseVoice Small (多语言，中文优化)
     ENABLE_GPU: bool = True
-    # 模型缓存目录 - 默认使用 D 盘，避免占用 C 盘空间
-    MODEL_CACHE_DIR: str = "D:/models_cache/sensevoice"
+    # 模型缓存目录（便携部署时通过 .env 覆盖）
+    MODEL_CACHE_DIR: str = "./models_cache"
 
     # 转录配置
     # 默认使用中文以获得最佳识别效果
@@ -295,11 +295,8 @@ class Settings(BaseSettings):
     def get_model_info(self, model_name: str) -> dict:
         """获取模型信息"""
         model_info = {
-            "tiny": {"size": "39MB", "speed": "10x", "accuracy": "★★☆☆☆"},
-            "base": {"size": "74MB", "speed": "7x", "accuracy": "★★★☆☆"},
-            "small": {"size": "244MB", "speed": "4x", "accuracy": "★★★★☆"},
-            "medium": {"size": "769MB", "speed": "2x", "accuracy": "★★★★★"},
-            "large": {"size": "1550MB", "speed": "1x", "accuracy": "★★★★★"},
+            "sensevoice-small": {"size": "244MB", "speed": "~4x", "accuracy": "★★★★☆",
+                                  "description": "多语言支持，中文优化"},
         }
         return model_info.get(model_name, {})
 
