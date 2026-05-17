@@ -142,6 +142,19 @@ class TestTextFallback:
         assert len(paragraphs) == 1
         assert paragraphs[0].text == text
 
+    def test_uses_text_fallback_when_raw_subtitle_segments_have_no_punctuation(self):
+        text = "第一句话有足够多的文字用于分段。第二句话继续补充内容。第三句话也需要保留标点分句。" * 3
+        segs = [
+            _make_segment(1.0, 3.0, "第一句话有足够多的文字用于分段"),
+            _make_segment(3.0, 5.0, "第二句话继续补充内容"),
+            _make_segment(5.0, 7.0, "第三句话也需要保留标点分句"),
+        ]
+        result = _make_result(text, segs)
+        paragraphs = format_paragraphs(result, max_length=60, min_length=10)
+
+        assert len(paragraphs) >= 2
+        assert "。" in paragraphs[0].text
+
     def test_empty_text(self):
         """空文本返回空列表。"""
         result = _make_result("")

@@ -8,7 +8,7 @@ import uuid
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional, Dict, Any, Callable, Set
+from typing import List, Optional, Dict, Any, Callable, Set, Tuple
 
 from loguru import logger
 
@@ -134,7 +134,7 @@ class TranscriptionService:
 
             # 提取音频
             self.task_service.update_task_status(task_id, TaskStatus.EXTRACTING)
-            audio_path = await self._extract_audio(
+            audio_path, raw_audio_path = await self._extract_audio(
                 file_path, task_id, progress_callback
             )
             self._register_temp_file(task_id, audio_path)
@@ -142,7 +142,8 @@ class TranscriptionService:
             # 执行转录
             self.task_service.update_task_status(task_id, TaskStatus.TRANSCRIBING)
             result = await self._transcribe(
-                audio_path, options, task_id, progress_callback
+                audio_path, options, task_id, progress_callback,
+                raw_audio_path=raw_audio_path,
             )
 
             # 更新任务状态
@@ -313,31 +314,42 @@ class TranscriptionService:
         media_path: str,
         task_id: str,
         progress_callback: Optional[Callable[[str, float, str], None]]
-    ) -> str:
-        """提取音频"""
+    ) -> Tuple[str, str]:
+        """
+        提取音频
+
+        Returns:
+            (optimized_audio_path, raw_audio_path) 元组
+        """
         def update_progress(progress: float):
             if progress_callback:
-                # 音频提取占 10-50%
                 total_progress = 10 + (progress * 0.4)
                 progress_callback(task_id, total_progress, "正在提取音频...")
 
-        audio_path = await self.audio_extractor.extract_and_optimize(
+        raw_audio_path = await self.audio_extractor.extract_audio(
             media_path=media_path,
-            optimize=True,
-            progress_callback=update_progress
+            output_format="wav",
+            progress_callback=lambda p: update_progress(p * 0.5) if progress_callback else None
+        )
+        self._register_temp_file(task_id, raw_audio_path)
+
+        optimized_path = await self.audio_extractor.optimize_audio_for_transcription(
+            audio_path=raw_audio_path,
+            progress_callback=lambda p: update_progress(50 + p * 0.5) if progress_callback else None
         )
 
         if progress_callback:
             progress_callback(task_id, 50, "音频提取完成")
 
-        return audio_path
+        return optimized_path, raw_audio_path
 
     async def _transcribe(
         self,
         audio_path: str,
         options: ProcessOptions,
         task_id: str,
-        progress_callback: Optional[Callable[[str, float, str], None]]
+        progress_callback: Optional[Callable[[str, float, str], None]],
+        raw_audio_path: Optional[str] = None,
     ) -> TranscriptionResult:
         """执行转录 (使用独立转录器实例)"""
         from core.sensevoice_transcriber import create_sensevoice_transcriber
@@ -383,9 +395,26 @@ class TranscriptionService:
 
         def update_progress(progress: float):
             if progress_callback:
-                # 转录占 50-95%
                 total_progress = 50 + (progress * 0.45)
                 progress_callback(task_id, total_progress, "正在进行语音识别...")
+
+        # 检测音频停顿位置（用于优化字幕切分）
+        # 在原始未优化音频上检测，确保时间轴与原始视频一致
+        timestamp_mode_str = timestamp_mode.value if hasattr(timestamp_mode, 'value') else str(timestamp_mode)
+        silence_ranges = None
+        if timestamp_mode_str in ("char", "sentence"):
+            try:
+                silence_source = raw_audio_path or audio_path
+                silence_ranges = self.audio_extractor.detect_silence_ranges(
+                    audio_path=silence_source,
+                    min_silence_len=300,
+                    silence_thresh=-40,
+                    seek_step=10,
+                )
+                if silence_ranges:
+                    logger.info(f"检测到 {len(silence_ranges)} 个音频停顿位置，用于优化字幕切分")
+            except Exception as e:
+                logger.warning(f"检测音频停顿位置失败，跳过: {e}")
 
         result = await transcriber.transcribe_audio(
             audio_path=audio_path,
@@ -393,7 +422,9 @@ class TranscriptionService:
             with_timestamps=options.with_timestamps,
             temperature=options.temperature,
             progress_callback=update_progress,
-            timestamp_mode=timestamp_mode.value if hasattr(timestamp_mode, 'value') else str(timestamp_mode)
+            timestamp_mode=timestamp_mode.value if hasattr(timestamp_mode, 'value') else str(timestamp_mode),
+            silence_ranges=silence_ranges,
+            raw_audio_path=raw_audio_path
         )
 
         if progress_callback:

@@ -231,19 +231,15 @@ class AudioChunker:
                     seg["start"] = seg.get("start", 0) + time_offset
                     seg["end"] = seg.get("end", 0) + time_offset
 
-                # 逐字时间戳：偏移并去除重叠
+                # 逐字时间戳：已由转录阶段转换为全局时间，这里只去除重叠
                 if chunk_char_ts:
-                    overlap_threshold = start_time
                     for ts in chunk_char_ts:
-                        adjusted_start = ts["start"] + start_time
-                        adjusted_end = ts["end"] + start_time
-                        # 跳过与上一块重叠的时间戳
-                        if merged_char_timestamps and adjusted_start <= merged_char_timestamps[-1]["end"]:
+                        if merged_char_timestamps and ts["start"] <= merged_char_timestamps[-1]["end"]:
                             continue
                         merged_char_timestamps.append({
                             "word": ts["word"],
-                            "start": round(adjusted_start, 3),
-                            "end": round(adjusted_end, 3)
+                            "start": round(ts["start"], 3),
+                            "end": round(ts["end"], 3)
                         })
 
                 # 添加非重叠部分的文本

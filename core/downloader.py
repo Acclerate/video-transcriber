@@ -266,12 +266,6 @@ class AudioExtractor:
                 logger.warning(f"音量标准化失败: {e}")
 
             if progress_callback:
-                progress_callback(60)
-
-            # 3. 去除静音片段
-            audio = self._remove_silence(audio)
-
-            if progress_callback:
                 progress_callback(80)
 
             # 生成优化后的文件路径

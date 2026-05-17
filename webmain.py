@@ -200,7 +200,7 @@ async def _transcribe_single(file_path, model, language, output, output_format, 
 
         file_path_obj = Path(file_path)
 
-        # 解析 timestamp_mode，向后兼容 --timestamps 标志
+        # 解析 timestamp_mode
         try:
             ts_mode = TimestampMode(timestamp_mode)
         except ValueError:
@@ -210,7 +210,7 @@ async def _transcribe_single(file_path, model, language, output, output_format, 
         options = ProcessOptions(
             model=TranscriptionModel(model),
             language=Language(language),
-            with_timestamps=timestamps,
+            with_timestamps=timestamps or ts_mode != TimestampMode.NONE,
             timestamp_mode=ts_mode,
             output_format=OutputFormat(output_format),
             enable_gpu=settings.ENABLE_GPU,

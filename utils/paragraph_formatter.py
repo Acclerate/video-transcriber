@@ -40,7 +40,7 @@ def format_paragraphs(
     if not result.text or not result.text.strip():
         return []
 
-    if _has_valid_timestamps(result.segments):
+    if _has_valid_timestamps(result.segments) and not _segments_lose_punctuation(result.segments, result.text):
         paragraphs = _split_by_hybrid(
             result.segments, result.text,
             silence_threshold=silence_threshold,
@@ -63,6 +63,14 @@ def format_paragraphs(
         f"原文 {len(result.text)} 字"
     )
     return paragraphs
+
+
+def _segments_lose_punctuation(segments: List[TranscriptionSegment], full_text: str) -> bool:
+    if not full_text or not segments:
+        return False
+    return bool(_SENTENCE_END_RE.search(full_text)) and not any(
+        _SENTENCE_END_RE.search(seg.text) for seg in segments
+    )
 
 
 # ------------------------------------------------------------------

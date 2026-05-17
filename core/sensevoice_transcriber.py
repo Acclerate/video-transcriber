@@ -10,7 +10,7 @@ import time
 import asyncio
 import threading
 from pathlib import Path
-from typing import Optional, Dict, Any, List, Callable
+from typing import Optional, Dict, Any, List, Callable, Tuple
 
 import torch
 import numpy as np
@@ -33,6 +33,19 @@ from models.schemas import (
     OutputFormat,
     TimestampMode
 )
+from utils.subtitle_timing import fix_subtitle_segment_timing
+
+try:
+    from utils.forced_aligner import (
+        ForcedAligner,
+        expand_char_timestamps_syllable_aware,
+    )
+    FA_AVAILABLE = True
+except ImportError:
+    FA_AVAILABLE = False
+    ForcedAligner = None
+    expand_char_timestamps_syllable_aware = None
+    logger.warning("FA 强制对齐模块不可用")
 
 
 class _SkipStandardParse(Exception):
@@ -54,7 +67,7 @@ class SenseVoiceTranscriber:
     """SenseVoice 语音转录器"""
 
     # 句子内标点（用于合并短 segments 时过滤）
-    _SEGMENT_PUNCT_RE = re.compile(r'[，。！？、；：""''（）()【】《》…—,.!?\s-]')
+    _SEGMENT_PUNCT_RE = re.compile(r'''[，。！？、；：""''（）()【】《》…—,.!?\s-]''')
 
     # 支持的模型配置
     MODEL_CONFIGS = {
@@ -149,10 +162,16 @@ class SenseVoiceTranscriber:
             "auto": "auto",
             "zh": "zh",
             "en": "en",
-            "yue": "yue",  # 粤语
-            "ja": "ja",   # 日语
-            "ko": "ko",   # 韩语
+            "yue": "yue",
+            "ja": "ja",
+            "ko": "ko",
         }
+
+        # 音频停顿位置（用于优化字幕切分）
+        self.silence_ranges: List[Tuple[float, float]] = []
+
+        # FA 强制对齐器
+        self._fa_aligner: Optional[Any] = None
 
     def _determine_device(self, device: Optional[str]) -> str:
         """确定计算设备"""
@@ -292,7 +311,9 @@ class SenseVoiceTranscriber:
         with_timestamps: bool = False,
         temperature: float = 0.0,
         progress_callback: Optional[Callable[[float], None]] = None,
-        timestamp_mode: Optional[str] = None
+        timestamp_mode: Optional[str] = None,
+        silence_ranges: Optional[List[Tuple[float, float]]] = None,
+        raw_audio_path: Optional[str] = None,
     ) -> TranscriptionResult:
         """
         转录音频文件
@@ -304,6 +325,8 @@ class SenseVoiceTranscriber:
             temperature: 采样温度 (SenseVoice 忽略此参数)
             progress_callback: 进度回调函数
             timestamp_mode: 时间戳模式 (覆盖初始化时的设置)
+            silence_ranges: 音频停顿位置列表，用于优化字幕切分
+            raw_audio_path: 原始音频路径，用于需要原始时间轴的后处理
 
         Returns:
             TranscriptionResult: 转录结果
@@ -323,6 +346,11 @@ class SenseVoiceTranscriber:
             if progress_callback:
                 progress_callback(10)
 
+            # 设置停顿位置（用于字幕切分优化）
+            if silence_ranges:
+                self.silence_ranges = silence_ranges
+                logger.info(f"已设置 {len(silence_ranges)} 个停顿位置用于字幕切分")
+
             # 准备语言参数
             lang = self._map_language(language)
 
@@ -338,7 +366,8 @@ class SenseVoiceTranscriber:
                 lang,
                 with_timestamps,
                 progress_callback,
-                actual_timestamp_mode
+                actual_timestamp_mode,
+                raw_audio_path
             )
 
             if progress_callback:
@@ -599,7 +628,8 @@ class SenseVoiceTranscriber:
         language: str,
         with_timestamps: bool,
         progress_callback: Optional[Callable[[float], None]] = None,
-        timestamp_mode: str = "none"
+        timestamp_mode: str = "none",
+        raw_audio_path: Optional[str] = None,
     ) -> TranscriptionResult:
         """同步执行转录"""
         start_time = time.time()
@@ -647,7 +677,8 @@ class SenseVoiceTranscriber:
                     # 使用同步分块处理方法
                     return self._transcribe_with_chunking_sync(
                         audio_path, language_str, with_timestamps, progress_callback, start_time,
-                        timestamp_mode=actual_mode
+                        timestamp_mode=actual_mode,
+                        raw_audio_path=raw_audio_path
                     )
                 else:
                     logger.info(f"音频时长 {audio_duration:.1f}s 不需要分块处理")
@@ -1105,7 +1136,39 @@ class SenseVoiceTranscriber:
                 for seg in segments:
                     seg.text = self._clean_special_tokens(seg.text)
 
-                # 步骤2: 添加标点符号
+                # 步骤2: FA 强制对齐（在标点添加之前，使用原始文本）
+                if progress_callback:
+                    progress_callback(88)
+
+                fa_text = None
+                fa_char_ts: List[CharTimestamp] = []
+
+                # 运行时动态判断是否使用 FA
+                use_fa = FA_AVAILABLE and actual_mode in ("char", "sentence")
+
+                if use_fa and text:
+                    try:
+                        logger.info("尝试使用 FA 强制对齐获取精确时间戳...")
+                        fa_audio_path = raw_audio_path or audio_path
+                        # FA 对齐使用原始文本（标点添加前），确保对齐准确性
+                        fa_text, fa_char_ts = self._align_with_fa(fa_audio_path, text)
+                    finally:
+                        # FA 模型占用大量显存，使用完后立即卸载
+                        if self._fa_aligner is not None:
+                            self._fa_aligner.unload_model()
+                            self._fa_aligner = None
+                            logger.debug("FA 模型已卸载，释放显存")
+
+                if fa_char_ts:
+                    logger.info(f"FA 强制对齐成功: {len(fa_char_ts)} 个精确时间戳")
+                    char_timestamps = fa_char_ts
+                elif use_fa:
+                    logger.warning("FA 对齐未产生时间戳，回退到 SenseVoice 原始时间戳")
+                    # 继续使用 SenseVoice 的时间戳
+                else:
+                    logger.debug("使用 SenseVoice 原始时间戳")
+
+                # 步骤3: 添加标点符号（在 FA 对齐之后）
                 if self.enable_punctuation:
                     try:
                         logger.info("正在添加标点符号...")
@@ -1113,18 +1176,20 @@ class SenseVoiceTranscriber:
                         if text_with_punct and text_with_punct != text:
                             logger.info(f"标点符号添加成功")
                             text = text_with_punct
-                            # 更新segments中的文本
-                            for seg in segments:
-                                if seg.text:
-                                    seg.text = self._add_punctuation(seg.text, detected_lang)
+                            if actual_mode not in ("char", "sentence"):
+                                for seg in segments:
+                                    if seg.text:
+                                        seg.text = self._add_punctuation(seg.text, detected_lang)
                         else:
                             logger.info("标点符号处理无变化")
                     except Exception as e:
                         logger.warning(f"标点符号后处理失败: {e}，使用原始文本")
 
-                # 步骤3: 从 char_timestamps 重建句级 segments（覆盖 VAD 级 segments）
+                # 步骤4: 从 char_timestamps 构建字幕 segments
+                if progress_callback:
+                    progress_callback(90)
                 if actual_mode in ("char", "sentence") and char_timestamps:
-                    rebuilt = self._build_segments_from_char_ts(char_timestamps, text)
+                    rebuilt = self._build_subtitle_segments_from_raw_ts(char_timestamps, text)
                     if rebuilt:
                         segments = rebuilt
 
@@ -1168,7 +1233,8 @@ class SenseVoiceTranscriber:
         with_timestamps: bool,
         progress_callback: Optional[Callable[[float], None]],
         start_time: float,
-        timestamp_mode: str = "none"
+        timestamp_mode: str = "none",
+        raw_audio_path: Optional[str] = None,
     ) -> TranscriptionResult:
         """
         使用分块处理转录长音频（同步版本）
@@ -1180,6 +1246,7 @@ class SenseVoiceTranscriber:
             progress_callback: 进度回调
             start_time: 开始时间
             timestamp_mode: 时间戳模式
+            raw_audio_path: 原始音频路径（用于 FA 对齐）
 
         Returns:
             TranscriptionResult: 转录结果
@@ -1277,7 +1344,8 @@ class SenseVoiceTranscriber:
         with_timestamps: bool,
         chunk_start: float,
         chunk_end: float,
-        timestamp_mode: str = "none"
+        timestamp_mode: str = "none",
+        raw_audio_path: Optional[str] = None,
     ) -> dict:
         """
         转录单个音频块（同步版本）
@@ -1289,6 +1357,7 @@ class SenseVoiceTranscriber:
             chunk_start: 块开始时间
             chunk_end: 块结束时间
             timestamp_mode: 时间戳模式
+            raw_audio_path: 原始音频路径（用于 FA 对齐）
 
         Returns:
             dict: 转录结果
@@ -1319,10 +1388,32 @@ class SenseVoiceTranscriber:
             # 提取文本
             text = self._extract_text_from_result(result)
 
-            # 提取逐字时间戳（如果启用）
+            # 提取或生成逐字时间戳
             char_ts_list = []
+            use_fa = FA_AVAILABLE and timestamp_mode in ("char", "sentence")
+
             if timestamp_mode in ("char", "sentence"):
+                # 首先尝试从 SenseVoice 结果提取时间戳
                 char_ts_list = self._extract_char_ts_from_raw_result(result, chunk_start)
+
+                # 如果启用了 FA，使用当前音频块对齐并加上块起点偏移
+                if use_fa and text:
+                    try:
+                        logger.info(f"块 {chunk_start:.1f}s-{chunk_end:.1f}s: 尝试 FA 强制对齐...")
+                        fa_text, fa_char_ts = self._align_with_fa(chunk_path, text, time_offset=chunk_start)
+                        if fa_char_ts:
+                            logger.info(f"块 {chunk_start:.1f}s-{chunk_end:.1f}s: FA 对齐成功，{len(fa_char_ts)} 个精确时间戳")
+                            char_ts_list = [
+                                {"word": ts.word, "start": ts.start, "end": ts.end}
+                                for ts in fa_char_ts
+                            ]
+                        else:
+                            logger.info(f"块 {chunk_start:.1f}s-{chunk_end:.1f}s: FA 未产生时间戳，使用 SenseVoice")
+                    finally:
+                        # 清理 FA 模型
+                        if self._fa_aligner is not None:
+                            self._fa_aligner.unload_model()
+                            self._fa_aligner = None
 
             return {
                 "text": text,
@@ -1590,10 +1681,408 @@ class SenseVoiceTranscriber:
             "device": self.device,
         }
         kwargs["language"] = language
+
         if timestamp_mode in ("char", "sentence"):
             kwargs["output_timestamp"] = True
-            logger.info(f"已启用 output_timestamp 时间戳模式: {timestamp_mode}")
+            if FA_AVAILABLE:
+                logger.info(f"已启用 SenseVoice output_timestamp fallback: {timestamp_mode}，FA 成功后将覆盖为精确时间戳")
+            else:
+                logger.info(f"已启用 SenseVoice output_timestamp: {timestamp_mode}")
         return kwargs
+
+    def _align_with_fa(
+        self, audio_path: str, text: str, time_offset: float = 0.0
+    ) -> Tuple[Optional[str], List[CharTimestamp]]:
+        """使用 FA 强制对齐模型获取精确的逐字时间戳"""
+        try:
+            if self._fa_aligner is None:
+                if not FA_AVAILABLE:
+                    return None, []
+                self._fa_aligner = ForcedAligner(
+                    model_cache_dir=self.model_cache_dir,
+                    device=self.device,
+                )
+
+            if not self._fa_aligner._loaded:
+                loaded = self._fa_aligner.load_model()
+                if not loaded:
+                    logger.warning("FA 模型加载失败，回退到 SenseVoice 时间戳")
+                    return None, []
+
+            return self._fa_aligner.align(audio_path, text, time_offset=time_offset)
+
+        except Exception as e:
+            logger.warning(f"FA 强制对齐异常: {e}，回退到 SenseVoice 时间戳")
+            return None, []
+
+    def _build_subtitle_segments_from_raw_ts(
+        self,
+        char_timestamps: List[CharTimestamp],
+        punctuated_text: str = "",
+        max_chars: int = 36,
+        max_duration: float = 8.0,
+    ) -> List[TranscriptionSegment]:
+        """基于 SenseVoice 原始时间戳构建字幕片段。"""
+        valid_timestamps = self._expand_subtitle_char_timestamps([
+            ts for ts in char_timestamps
+            if ts.word and ts.end >= ts.start
+        ])
+        if not valid_timestamps:
+            return []
+
+        raw_text = "".join(ts.word for ts in valid_timestamps)
+        split_points = self._subtitle_split_points_from_punctuation(raw_text, punctuated_text)
+        split_points.update(self._subtitle_split_points_from_text(raw_text))
+        split_points.add(len(raw_text))
+        ordered_split_points = sorted(point for point in split_points if point > 0)
+        next_split_point = 0
+
+        segments = []
+        current = []
+        raw_pos = 0
+
+        def segment_text(items: List[CharTimestamp]) -> str:
+            return "".join(ts.word for ts in items).strip()
+
+        def append_segment(items: List[CharTimestamp]):
+            text = segment_text(items)
+            if text:
+                segments.append(TranscriptionSegment(
+                    start_time=round(items[0].start, 3),
+                    end_time=round(items[-1].end, 3),
+                    text=text,
+                    confidence=0.95,
+                    char_timestamps=list(items),
+                ))
+
+        def split_long_items(items: List[CharTimestamp]):
+            remaining = list(items)
+            while remaining:
+                if len(segment_text(remaining)) <= max_chars and remaining[-1].end - remaining[0].start <= max_duration:
+                    append_segment(remaining)
+                    return
+
+                split_index = self._best_subtitle_split_index(
+                    remaining,
+                    min_chars=6,
+                    max_chars=max_chars,
+                    force_split=remaining[-1].end - remaining[0].start > max_duration,
+                    max_duration=max_duration,
+                )
+                if split_index <= 0:
+                    split_index = max(1, len(remaining) // 2)
+                append_segment(remaining[:split_index])
+                remaining = remaining[split_index:]
+
+        current_start_raw_pos = 0
+
+        for ts in valid_timestamps:
+            current.append(ts)
+            raw_pos += len(ts.word)
+
+            should_flush = raw_pos == len(raw_text)
+            while next_split_point < len(ordered_split_points) and ordered_split_points[next_split_point] <= raw_pos:
+                point = ordered_split_points[next_split_point]
+                next_split_point += 1
+                if point <= current_start_raw_pos:
+                    continue
+                if len(segment_text(current)) < 6:
+                    continue
+                if not self._is_safe_subtitle_boundary(raw_text, raw_pos):
+                    continue
+                should_flush = True
+                break
+
+            if should_flush:
+                if len(segment_text(current)) > max_chars or current[-1].end - current[0].start > max_duration:
+                    split_long_items(current)
+                else:
+                    append_segment(current)
+                current = []
+                current_start_raw_pos = raw_pos
+
+        if current:
+            split_long_items(current)
+
+        return self._dedupe_and_fix_segment_timing(segments)
+
+    def _expand_subtitle_char_timestamps(
+        self,
+        char_timestamps: List[CharTimestamp],
+    ) -> List[CharTimestamp]:
+        if expand_char_timestamps_syllable_aware is not None:
+            return expand_char_timestamps_syllable_aware(char_timestamps)
+
+        expanded = []
+        for ts in char_timestamps:
+            text = ts.word.strip()
+            if not text:
+                continue
+            if len(text) == 1 or ts.end <= ts.start:
+                expanded.append(ts)
+                continue
+
+            duration = ts.end - ts.start
+            char_duration = duration / len(text)
+            for index, ch in enumerate(text):
+                start_time = ts.start + char_duration * index
+                end_time = ts.start + char_duration * (index + 1)
+                expanded.append(CharTimestamp(
+                    word=ch,
+                    start=round(start_time, 3),
+                    end=round(end_time, 3),
+                ))
+        return expanded
+
+    def _is_safe_subtitle_boundary(self, text: str, pos: int) -> bool:
+        """
+        通用安全边界检测，不再依赖硬编码词组列表。
+
+        规则:
+        1. 不能在英文单词中间断开
+        2. 不能在助词（的/了/呢/吧/啊/吗/着/过）之前断开
+        3. 不能在介词/连词（但/和/与/及/把/被/对/在/以/从/向/给）之后断开
+        4. 不能在数字中间断开
+        """
+        if pos <= 0 or pos >= len(text):
+            return True
+
+        prev_char = text[pos - 1]
+        next_char = text[pos]
+
+        # 不能在英文单词/数字中间断开
+        if prev_char.isascii() and prev_char.isalnum() and next_char.isascii() and next_char.isalnum():
+            return False
+
+        # 中文助词不作为下一行的开头
+        if next_char in "的呢吧啊吗着过":
+            return False
+
+        # "了" 特殊处理：如果前一个字也是动词性字，可以在"了"后断开
+        if next_char == "了" and prev_char not in "是的有":
+            return False
+
+        # 介词/连词不作为上一行的结尾
+        if prev_char in "但和与及把被对在以从向给":
+            return False
+
+        return True
+
+    def _subtitle_split_points_from_punctuation(
+        self,
+        raw_text: str,
+        punctuated_text: str,
+        min_chars: int = 8,
+    ) -> set[int]:
+        if not raw_text or not punctuated_text:
+            return set()
+
+        strong_punct = set("。！？!?")
+        soft_punct = set("，,；;：:")
+        split_points = set()
+        raw_idx = 0
+        last_split = 0
+
+        for ch in punctuated_text:
+            if ch in strong_punct | soft_punct:
+                if raw_idx - last_split >= min_chars:
+                    split_points.add(raw_idx)
+                    last_split = raw_idx
+                continue
+            if ch.isspace():
+                continue
+            if raw_idx >= len(raw_text):
+                break
+
+            pos = raw_text.find(ch, raw_idx, min(raw_idx + 8, len(raw_text)))
+            if pos == -1:
+                pos = raw_idx
+            raw_idx = pos + 1
+
+        return split_points
+
+    def _subtitle_split_points_from_text(self, raw_text: str) -> set[int]:
+        """
+        通用文本分割点检测。
+
+        基于通用语言学规则而非硬编码词组列表:
+        1. 检测转折/因果连接词（通用模式）
+        2. 检测序数词/列举词
+        3. 检测总结/转折词
+        """
+        split_points = set()
+
+        # 通用连接词模式（可出现在句子开头，适合作为切分点）
+        connector_patterns = [
+            r'那么(?=[，,]|\s)',
+            r'但是(?=[，,]|\s|.)',
+            r'而且(?=[，,]|\s)',
+            r'所以(?=[，,]|\s)',
+            r'因为(?=[，,]|\s)',
+            r'然后(?=[，,]|\s)',
+            r'接下来(?=[，,]|\s)',
+            r'另外(?=[，,]|\s)',
+            r'同时(?=[，,]|\s)',
+            r'首先(?=[，,]|\s)',
+            r'其次(?=[，,]|\s)',
+            r'最后(?=[，,]|\s)',
+            r'第[一二三四五六七八九十\d]+[，,]?',
+            r'当然(?=[，,]|\s|了)',
+            r'比如说(?=[，,]|\s)',
+            r'实际上(?=[，,]|\s)',
+            r'总体(?:上)?(?:而言)?(?=[，,]。\s])',
+            r'大家(?:都)?知道(?=[，,]|\s)',
+        ]
+
+        for pattern in connector_patterns:
+            for m in re.finditer(pattern, raw_text):
+                pos = m.start()
+                if pos >= 8:
+                    split_points.add(pos)
+
+        # 英文空格位置也是合理分割点（英文单词边界）
+        for i, ch in enumerate(raw_text):
+            if ch == ' ' and i >= 8 and i < len(raw_text) - 8:
+                # 检查两边是否都是英文
+                if i > 0 and raw_text[i-1].isascii() and i+1 < len(raw_text) and raw_text[i+1].isascii():
+                    split_points.add(i + 1)
+
+        return split_points
+
+    def _best_subtitle_split_index(
+        self,
+        items: List[CharTimestamp],
+        min_chars: int,
+        max_chars: int,
+        force_split: bool = False,
+        max_duration: float = 8.0,
+    ) -> int:
+        """
+        通用字幕最佳切分点选择。
+
+        评分因素（按权重排序）:
+        1. 音频停顿位置 (score += 500) — 最强信号
+        2. 时间间隙 (gap * 100)
+        3. 连接词/转折词位置 (score += 100)
+        4. 中文句末字 (score += 10)
+        5. 字符位置偏好 (靠近 max_chars 的 65% 处加分)
+        """
+        text = "".join(ts.word for ts in items)
+        if len(text) <= max_chars and not force_split:
+            return 0
+
+        split_positions = []
+        char_pos = 0
+        for i, ts in enumerate(items[:-1], 1):
+            char_pos += len(ts.word)
+            split_positions.append((i, char_pos))
+
+        def safe_split_candidates(lower_bound: int = 1, upper_bound: Optional[int] = None):
+            if upper_bound is None:
+                upper_bound = len(text) - 1
+            return [
+                (i, pos)
+                for i, pos in split_positions
+                if lower_bound <= pos <= upper_bound and self._is_safe_subtitle_boundary(text, pos)
+            ]
+
+        if force_split and items[-1].end - items[0].start > max_duration:
+            target_end = items[0].start + max_duration
+            target_index = len(items) - 1
+            for i, ts in enumerate(items[:-1], 1):
+                if ts.end >= target_end:
+                    target_index = i
+                    break
+
+            candidates = safe_split_candidates()
+            if candidates:
+                return min(
+                    candidates,
+                    key=lambda candidate: (
+                        abs(items[candidate[0] - 1].end - target_end),
+                        candidate[0] < target_index,
+                    ),
+                )[0]
+
+        lower = min(min_chars, max(1, len(text) - 1))
+        upper = min(max_chars, len(text) - min_chars)
+        if force_split and upper <= lower:
+            upper = max(lower, len(text) - 1)
+        if upper <= lower:
+            return max(1, min(max_chars, len(items) - 1))
+
+        candidates = []
+        phrase_points = self._subtitle_split_points_from_text(text)
+        prev_char_pos = 0
+        char_pos = 0
+        for i, ts in enumerate(items[:-1], 1):
+            prev_char_pos = char_pos
+            char_pos += len(ts.word)
+            if lower <= char_pos <= upper:
+                if not self._is_safe_subtitle_boundary(text, char_pos):
+                    continue
+
+                # 基础分: 时间间隙
+                gap = items[i].start - ts.end
+                score = gap * 100
+
+                # 连接词/转折词位置
+                if any(prev_char_pos < point <= char_pos + 2 for point in phrase_points):
+                    score += 100
+
+                # 音频停顿位置（最强信号）
+                split_time = (ts.end + items[i].start) / 2
+                for silence_start, silence_end in self.silence_ranges:
+                    silence_center = (silence_start + silence_end) / 2
+                    if abs(split_time - silence_center) <= 0.5:
+                        score += 500
+                        break
+
+                # 中文句末字（的了呢啊吧吗）
+                prev_word = ts.word[-1]
+                if prev_word in "的了呢啊吧吗":
+                    score += 10
+                # 标点符号后
+                if prev_word in "，。！？,!?;；:：":
+                    score += 15
+
+                # 字符位置偏好
+                if char_pos >= max_chars * 0.65:
+                    score += 2
+
+                candidates.append((score, i))
+
+        if candidates:
+            return max(candidates)[1]
+
+        char_pos = 0
+        for i, ts in enumerate(items[:-1], 1):
+            char_pos += len(ts.word)
+            if char_pos >= max_chars and self._is_safe_subtitle_boundary(text, char_pos):
+                return i
+
+        candidates = safe_split_candidates()
+        if candidates:
+            target_pos = min(max_chars, max(1, len(text) - 1))
+            return min(candidates, key=lambda candidate: abs(candidate[1] - target_pos))[0]
+
+        return max(1, len(items) - 1)
+
+    def _dedupe_and_fix_segment_timing(
+        self,
+        segments: List[TranscriptionSegment],
+        subtitle_hold_seconds: float = 0.35,
+    ) -> List[TranscriptionSegment]:
+        cleaned, overlap_fixed = fix_subtitle_segment_timing(
+            segments,
+            subtitle_hold_seconds=subtitle_hold_seconds,
+        )
+
+        if overlap_fixed:
+            logger.info(f"修复 {overlap_fixed} 处字幕时间重叠")
+
+        logger.info(f"基于原始时间戳构建 {len(cleaned)} 个字幕 segments")
+        return cleaned
 
     def _build_segments_from_char_ts(
         self,
@@ -1773,8 +2262,8 @@ class SenseVoiceTranscriber:
                 except Exception as e:
                     logger.warning(f"标点符号处理失败: {e}")
 
-        # 构建带时间戳的 segments
-        segments = self._build_segments_from_char_ts(merged_char_ts, final_text)
+        # 构建字幕 segments：只使用 SenseVoice 原始时间戳，保留 final_text 标点处理结果
+        segments = self._build_subtitle_segments_from_raw_ts(merged_char_ts, final_text)
 
         processing_time = time.time() - start_time
         logger.info(f"分块转录完成，总耗时: {processing_time:.2f}秒")
@@ -1881,11 +2370,14 @@ class SenseVoiceTranscriber:
                 self.model = None
                 self._model_loaded = False
 
-                # 清理GPU内存
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
 
                 logger.info("SenseVoice 模型已卸载")
+
+        if self._fa_aligner is not None:
+            self._fa_aligner.unload_model()
+            self._fa_aligner = None
 
 
 def create_sensevoice_transcriber(
