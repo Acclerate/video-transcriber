@@ -385,16 +385,18 @@ video-transcriber/
 ├── 📄 CODE_REVIEW_REPORT.md      # 代码审查报告
 ├── 📄 requirements.txt           # Python依赖
 ├── 📄 .env.example               # 配置模板
-├── 📄 main.py                    # 命令行入口
+├── 📄 webmain.py                 # 命令行入口
 ├── 📁 api/                       # Web API层
-│   ├── 📄 main.py                # FastAPI应用
+│   ├── 📄 apimain.py             # FastAPI应用
 │   ├── 📁 routes/                # API路由
 │   │   ├── health.py             # 健康检查
-│   │   └── transcribe.py         # 转录接口
+│   │   ├── transcribe.py         # 转录接口
+│   │   ├── tasks.py              # 任务查询接口
+│   │   └── system.py             # 系统管理接口
 │   └── 📄 websocket.py           # WebSocket处理
 ├── 📁 core/                      # 核心业务层
 │   ├── 📄 engine.py              # 转录引擎
-│   ├── 📄 transcriber.py         # 语音转录器
+│   ├── 📄 sensevoice_transcriber.py  # SenseVoice语音转录器
 │   └── 📄 downloader.py          # 音频提取器
 ├── 📁 services/                  # 服务层
 │   ├── 📄 transcription_service.py
@@ -625,7 +627,7 @@ python -m pip install --upgrade pip
 pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 
 # 单独安装问题依赖
-pip install openai-whisper
+pip install funasr modelscope
 pip install torch
 pip install pydub
 ```
@@ -657,10 +659,9 @@ ENABLE_GPU=true
 
 #### 2. 模型预加载
 
-```python
-# 首次运行时预加载模型
-import whisper
-model = whisper.load_model("small")
+```bash
+# 首次运行时预下载模型
+python webmain.py download-model sensevoice-small
 ```
 
 #### 3. 批量处理优化
@@ -921,7 +922,7 @@ pytest --cov=. --cov-report=html
 
 ## 🙏 致谢
 
-- [OpenAI Whisper](https://github.com/openai/whisper) - 强大的语音识别模型
+- [SenseVoice/FunASR](https://github.com/modelscope/FunASR) - 阿里达摩院语音识别模型
 - [FastAPI](https://fastapi.tiangolo.com/) - 现代Web框架
 - [pydub](https://github.com/jiaaro/pydub) - 音频处理库
 

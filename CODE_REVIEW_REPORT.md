@@ -12,14 +12,14 @@
 
 ### 1.1 分块处理后临时文件泄漏
 
-**位置**: `core/transcriber.py:418`, `utils/audio/chunking.py:250-260`
+**位置**: `core/sensevoice_transcriber.py:418`, `utils/audio/chunking.py:250-260`
 
 **问题描述**:
 音频分块处理时创建的临时 `.wav` 文件在正常流程中会被清理，但在异常情况下可能残留。
 
 **当前代码**:
 ```python
-# core/transcriber.py:443-446
+# core/sensevoice_transcriber.py:443-446
 except Exception as e:
     # 清理临时文件
     try:

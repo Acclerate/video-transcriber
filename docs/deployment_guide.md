@@ -79,10 +79,10 @@ brew install ffmpeg
 python webmain.py --help
 
 # Web服务模式
-python webmain.py serve --host 0.0.0.0 --port 8000
+python webmain.py serve --host 0.0.0.0 --port 8665
 
 # 或使用uvicorn直接启动
-uvicorn api.apimain:app --host 0.0.0.0 --port 8000
+uvicorn api.apimain:app --host 0.0.0.0 --port 8665
 ```
 
 ## ⚙️ 环境配置
@@ -92,11 +92,11 @@ uvicorn api.apimain:app --host 0.0.0.0 --port 8000
 ```bash
 # 服务配置
 HOST=0.0.0.0                    # 服务监听地址
-PORT=8000                       # 服务端口
+PORT=8665                       # 服务端口
 DEBUG=false                     # 调试模式
 
-# Whisper模型配置
-DEFAULT_MODEL=small             # 默认模型
+# SenseVoice模型配置
+DEFAULT_MODEL=sensevoice-small  # 默认模型
 ENABLE_GPU=true                 # 启用GPU加速
 MODEL_CACHE_DIR=./models_cache  # 模型缓存目录
 
@@ -149,8 +149,8 @@ pip install -r requirements.txt
 python webmain.py serve --reload
 
 # 4. 访问服务
-# Web界面: http://localhost:8000
-# API文档: http://localhost:8000/docs
+# Web界面: http://localhost:8665
+# API文档: http://localhost:8665/docs
 ```
 
 ### Docker部署
@@ -164,7 +164,7 @@ docker build -f docker/Dockerfile -t video-transcriber:latest .
 # 2. 运行容器
 docker run -d \
   --name video-transcriber \
-  -p 8000:8000 \
+  -p 8665:8665 \
   -v $(pwd)/logs:/app/logs \
   -v $(pwd)/temp:/app/temp \
   -v $(pwd)/models_cache:/app/models_cache \
@@ -229,7 +229,7 @@ cp .env.example .env
 docker-compose -f docker/docker-compose.yml up -d
 
 # 5. 配置防火墙
-sudo ufw allow 8000
+sudo ufw allow 8665
 sudo ufw enable
 ```
 
@@ -260,7 +260,7 @@ cp .env.example .env
 sudo docker-compose -f docker/docker-compose.yml up -d
 
 # 5. 配置安全组
-# 在阿里云控制台开放8000端口
+# 在阿里云控制台开放8665端口
 ```
 
 ### Kubernetes部署
@@ -295,12 +295,12 @@ spec:
       - name: video-transcriber
         image: video-transcriber:latest
         ports:
-        - containerPort: 8000
+        - containerPort: 8665
         env:
         - name: HOST
           value: "0.0.0.0"
         - name: PORT
-          value: "8000"
+          value: "8665"
         resources:
           requests:
             memory: "2Gi"
@@ -332,7 +332,7 @@ spec:
     app: video-transcriber
   ports:
   - port: 80
-    targetPort: 8000
+    targetPort: 8665
   type: LoadBalancer
 ```
 
@@ -368,7 +368,7 @@ export MKL_NUM_THREADS=4
 
 ```python
 # .env配置优化
-DEFAULT_MODEL=small              # 平衡性能和准确率
+DEFAULT_MODEL=sensevoice-small   # SenseVoice模型
 MAX_CONCURRENT_DOWNLOADS=3       # 控制并发数
 CLEANUP_AFTER=1800              # 更频繁清理
 ```
@@ -434,7 +434,7 @@ volumes:
 
 ```bash
 # 应用健康检查
-curl http://localhost:8000/health
+curl http://localhost:8665/health
 
 # 系统资源检查
 htop
@@ -452,7 +452,7 @@ free -h
 ping huggingface.co
 
 # 手动下载模型
-python -c "import whisper; whisper.load_model('small')"
+python webmain.py download-model sensevoice-small
 
 # 设置代理
 export HTTP_PROXY=http://proxy:8080
@@ -465,11 +465,8 @@ export HTTPS_PROXY=http://proxy:8080
 free -h
 docker stats
 
-# 使用更小的模型
-DEFAULT_MODEL=tiny
-
 # 减少并发数
-MAX_CONCURRENT_DOWNLOADS=1
+MAX_CONCURRENT_TASKS=1
 ```
 
 #### 3. GPU不可用
@@ -486,14 +483,14 @@ pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu118
 #### 4. 端口被占用
 ```bash
 # 查看端口占用
-netstat -tlnp | grep 8000
-lsof -i :8000
+netstat -tlnp | grep 8665
+lsof -i :8665
 
 # 杀死占用进程
 sudo kill -9 <PID>
 
 # 更改端口
-PORT=8001
+PORT=8666
 ```
 
 ### 日志分析
@@ -531,9 +528,9 @@ docker exec video-transcriber-redis redis-cli save
 ```nginx
 # nginx.conf
 upstream video_transcriber {
-    server 127.0.0.1:8001;
-    server 127.0.0.1:8002;
-    server 127.0.0.1:8003;
+    server 127.0.0.1:8666;
+    server 127.0.0.1:8667;
+    server 127.0.0.1:8668;
 }
 
 server {

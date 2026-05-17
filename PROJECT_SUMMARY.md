@@ -1,10 +1,8 @@
-# Video Transcriber 项目完成总结 🎉
+# Video Transcriber 项目完成总结
 
 ## 📋 项目概述
 
-git config --global --unset http.https://github.com.proxy 
-
-Video Transcriber 是一个本地视频文件转文本工具，支持上传本地视频文件进行语音识别和转录。
+Video Transcriber 是一个本地视频/音频文件转文本工具，基于阿里 SenseVoice 模型实现高精度多语言语音识别，支持上传本地视频或音频文件进行转录。
 
 ## ✅ 完成的功能模块
 
@@ -15,9 +13,9 @@ Video Transcriber 是一个本地视频文件转文本工具，支持上传本�
   - 音频格式转换和优化
   - 支持 WAV/MP3/M4A 格式
 
-- **语音转文字引擎** (`core/transcriber.py`)
-  - 基于 OpenAI Whisper 的高精度识别
-  - 支持多种模型规格选择 (tiny/base/small/medium/large)
+- **语音转文字引擎** (`core/sensevoice_transcriber.py`)
+  - 基于阿里 SenseVoice 的高精度识别
+  - 中文优化，支持多语言
   - GPU 加速支持
 
 - **核心处理引擎** (`core/engine.py`)
@@ -65,7 +63,7 @@ Video Transcriber 是一个本地视频文件转文本工具，支持上传本�
 ### 1. 技术栈
 - **后端**: Python + FastAPI
 - **前端**: HTML5 + CSS3 + JavaScript
-- **AI引擎**: OpenAI Whisper
+- **AI引擎**: Alibaba SenseVoice (FunASR)
 - **音频处理**: FFmpeg
 - **容器化**: Docker + Docker Compose
 
@@ -82,9 +80,9 @@ Video Transcriber 是一个本地视频文件转文本工具，支持上传本�
 
 ## 📊 功能特性
 
-- ✅ 支持多种视频格式 (MP4, AVI, MKV, MOV, WMV, FLV, WebM)
-- ✅ 5种 Whisper 模型选择
-- ✅ 4种输出格式 (TXT, JSON, SRT, VTT)
+- ✅ 支持多种视频格式 (MP4, AVI, MKV, MOV, WMV, FLV, WebM) 和音频格式 (MP3, WAV, M4A, AAC, FLAC, OGG)
+- ✅ SenseVoice 高精度模型（中文优化）
+- ✅ 6种输出格式 (TXT, JSON, SRT, VTT, char_json, volc_json)
 - ✅ 多语言支持 (中文、英文、日语、韩语等)
 - ✅ 实时进度追踪
 - ✅ 批量处理能力
@@ -110,7 +108,7 @@ python webmain.py transcribe "/path/to/video.mp4"
 
 # 方式2: Web服务
 python webmain.py serve
-# 访问 http://localhost:8000
+# 访问 http://localhost:8665
 
 # 方式3: Docker部署
 docker-compose -f docker/docker-compose.yml up -d
@@ -128,20 +126,20 @@ python webmain.py batch file_list.txt --format srt
 ## 📚 文档资源
 
 ### 技术文档
-- [📋 技术设计文档](docs/technical_specification.md)
-- [🔌 API接口文档](docs/api_documentation.md)
+- [技术设计文档](docs/technical_specification.md)
+- [部署指南](docs/deployment_guide.md)
 
 ### 使用指南
 - [📖 README文档](README.md)
 
 ### 在线资源
-- **API文档**: http://localhost:8000/docs
-- **Web界面**: http://localhost:8000
+- **API文档**: http://localhost:8665/docs
+- **Web界面**: http://localhost:8665
 
 ## 🏆 项目亮点
 
 1. **技术先进性**
-   - 采用最新的 OpenAI Whisper 模型
+   - 采用阿里达摩院 SenseVoice 模型，中文优化
    - 现代化的 FastAPI + async 架构
 
 2. **功能完整性**
@@ -162,5 +160,5 @@ Video Transcriber 项目现已完成！
 python webmain.py serve
 
 # 访问 Web 界面
-open http://localhost:8000
+open http://localhost:8665
 ```
