@@ -1276,6 +1276,21 @@ class SenseVoiceTranscriber:
 
             logger.info(f"音频已分割为 {len(chunks)} 个块")
 
+            # 预加载 FA 模型（整个 chunking session 复用，避免逐块加载/卸载）
+            if FA_AVAILABLE and timestamp_mode in ("char", "sentence"):
+                try:
+                    from utils.forced_aligner import ForcedAligner
+                    self._fa_aligner = ForcedAligner(
+                        model_cache_dir=self.model_cache_dir,
+                        device=self.device,
+                        force_time_shift=getattr(self, '_force_time_shift', 0.0),
+                    )
+                    if not self._fa_aligner.load_model():
+                        self._fa_aligner = None
+                except Exception as e:
+                    logger.warning(f"FA 模型预加载失败，将使用 SenseVoice 时间戳: {e}")
+                    self._fa_aligner = None
+
             # 处理每个块
             chunk_results = []
             total_chunks = len(chunks)
@@ -1326,6 +1341,11 @@ class SenseVoiceTranscriber:
             finally:
                 loop.close()
 
+            # 卸载 FA 模型（整个 session 结束后统一释放）
+            if self._fa_aligner is not None:
+                self._fa_aligner.unload_model()
+                self._fa_aligner = None
+
             # 合并结果
             logger.info("合并分块转录结果...")
             merged_result = self.audio_chunker.merge_results(
@@ -1334,10 +1354,15 @@ class SenseVoiceTranscriber:
             )
 
             return self._postprocess_chunked_result(
-                merged_result, language, timestamp_mode, start_time
+                merged_result, language, timestamp_mode, start_time,
+                silence_ranges=getattr(self, 'silence_ranges', None),
             )
 
         except Exception as e:
+            # 确保 FA 模型在异常时也被释放
+            if getattr(self, '_fa_aligner', None) is not None:
+                self._fa_aligner.unload_model()
+                self._fa_aligner = None
             import traceback
             logger.error(f"分块转录失败: {e}")
             logger.error(f"堆栈跟踪:\n{traceback.format_exc()}")
@@ -1405,8 +1430,26 @@ class SenseVoiceTranscriber:
                 # 首先尝试从 SenseVoice 结果提取时间戳
                 char_ts_list = self._extract_char_ts_from_raw_result(result, chunk_start)
 
-                # 如果启用了 FA，使用当前音频块对齐并加上块起点偏移
-                if use_fa and text:
+                # 优先使用预加载的 FA 模型，回退到逐块加载
+                fa_aligner = getattr(self, '_fa_aligner', None)
+                if use_fa and text and fa_aligner is not None:
+                    try:
+                        logger.info(f"块 {chunk_start:.1f}s-{chunk_end:.1f}s: 使用预加载 FA 强制对齐...")
+                        fa_text, fa_char_ts = fa_aligner.align(chunk_path, text, time_offset=chunk_start)
+                        if fa_char_ts:
+                            logger.info(f"块 {chunk_start:.1f}s-{chunk_end:.1f}s: FA 对齐成功，{len(fa_char_ts)} 个精确时间戳")
+                            if fa_text and len(fa_text) == len(fa_char_ts):
+                                text = fa_text
+                            char_ts_list = [
+                                {"word": ts.word, "start": ts.start, "end": ts.end}
+                                for ts in fa_char_ts
+                            ]
+                        else:
+                            logger.info(f"块 {chunk_start:.1f}s-{chunk_end:.1f}s: FA 未产生时间戳，使用 SenseVoice")
+                    except Exception as e:
+                        logger.warning(f"块 {chunk_start:.1f}s-{chunk_end:.1f}s: FA 对齐失败: {e}")
+                elif use_fa and text:
+                    # 无预加载 FA，回退到逐块加载方式
                     try:
                         logger.info(f"块 {chunk_start:.1f}s-{chunk_end:.1f}s: 尝试 FA 强制对齐...")
                         fa_text, fa_char_ts = self._align_with_fa(chunk_path, text, time_offset=chunk_start)
@@ -1422,7 +1465,6 @@ class SenseVoiceTranscriber:
                         else:
                             logger.info(f"块 {chunk_start:.1f}s-{chunk_end:.1f}s: FA 未产生时间戳，使用 SenseVoice")
                     finally:
-                        # 清理 FA 模型
                         if self._fa_aligner is not None:
                             self._fa_aligner.unload_model()
                             self._fa_aligner = None
@@ -1529,7 +1571,8 @@ class SenseVoiceTranscriber:
             )
 
             return self._postprocess_chunked_result(
-                merged_result, language, timestamp_mode, start_time
+                merged_result, language, timestamp_mode, start_time,
+                silence_ranges=getattr(self, 'silence_ranges', None),
             )
 
         except Exception as e:
@@ -3119,6 +3162,7 @@ class SenseVoiceTranscriber:
         language: str,
         timestamp_mode: str,
         start_time: float,
+        silence_ranges: list = None,
     ) -> TranscriptionResult:
         """对分块合并结果进行后处理并构建最终的 TranscriptionResult（sync/async 共用）"""
         # 提取逐字时间戳
@@ -3176,6 +3220,24 @@ class SenseVoiceTranscriber:
                 logger.error(traceback.format_exc())
                 # 回退到简单的 segments
                 segments = []
+
+        # VAD 边界锚定：将字幕时间戳对齐到语音段边界
+        if vad_segments and segments:
+            try:
+                from utils.subtitle_timing import anchor_segments_to_vad
+                segments = anchor_segments_to_vad(segments, vad_segments)
+                logger.info(f"VAD 边界锚定完成: {len(segments)} 条字幕")
+            except Exception as e:
+                logger.warning(f"VAD 边界锚定失败: {e}")
+
+        # 静音区间约束：确保字幕时间戳不落入静音区间
+        if silence_ranges and segments:
+            try:
+                from utils.subtitle_timing import enforce_silence_boundaries
+                segments = enforce_silence_boundaries(segments, silence_ranges)
+                logger.info(f"静音边界约束完成: {len(segments)} 条字幕")
+            except Exception as e:
+                logger.warning(f"静音边界约束失败: {e}")
 
         # 最终文本使用原始文本（不含标点）
         final_text = raw_text

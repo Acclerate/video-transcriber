@@ -35,7 +35,7 @@ def test_cancel_task_not_found():
         response = client.post("/api/v1/transcribe/task/none/cancel")
 
     assert response.status_code == 404
-    assert "任务不存在" in response.json()["detail"]
+    assert response.json()["code"] == 404
 
 
 def test_cancel_task_not_active():

@@ -8,7 +8,9 @@ import pytest
 import asyncio
 from pathlib import Path
 from unittest.mock import Mock, AsyncMock
-from typing import Generator, Dict, Any
+from typing import Generator
+
+os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
 
 # 添加项目根目录到Python路径
 import sys
@@ -17,7 +19,8 @@ sys.path.insert(0, str(project_root))
 
 from models.schemas import (
     TranscriptionResult, TranscriptionSegment,
-    TranscriptionModel, Language, TaskStatus
+    TranscriptionModel, Language, TaskStatus, MediaFileInfo, MediaFormat,
+    CharTimestamp, Paragraph, OutputFormat
 )
 
 
@@ -74,6 +77,18 @@ def sample_transcription_result(sample_transcription_segments) -> TranscriptionR
         segments=sample_transcription_segments,
         processing_time=12.5,
         whisper_model=TranscriptionModel.SENSEVOICE_SMALL
+    )
+
+
+@pytest.fixture
+def sample_video_info() -> MediaFileInfo:
+    """示例媒体文件信息"""
+    return MediaFileInfo.model_construct(
+        file_path="/path/to/video.mp4",
+        file_name="video.mp4",
+        file_size=1024000,
+        duration=60.0,
+        format=MediaFormat.MP4,
     )
 
 
@@ -143,6 +158,57 @@ def mock_env_vars(monkeypatch):
 requires_network = pytest.mark.network
 requires_gpu = pytest.mark.gpu
 slow_test = pytest.mark.slow
+
+
+@pytest.fixture
+def sample_char_timestamps() -> list[CharTimestamp]:
+    """示例逐字时间戳"""
+    return [
+        CharTimestamp(word="你", start=0.0, end=0.3),
+        CharTimestamp(word="好", start=0.3, end=0.6),
+        CharTimestamp(word="世", start=0.6, end=0.9),
+        CharTimestamp(word="界", start=0.9, end=1.2),
+    ]
+
+
+@pytest.fixture
+def sample_result_with_char_timestamps(sample_char_timestamps) -> TranscriptionResult:
+    """带逐字时间戳的转录结果"""
+    seg = TranscriptionSegment(
+        start_time=0.0, end_time=1.2,
+        text="你好世界", confidence=0.95,
+        char_timestamps=sample_char_timestamps,
+    )
+    return TranscriptionResult(
+        text="你好世界",
+        language="zh",
+        confidence=0.95,
+        segments=[seg],
+        processing_time=1.0,
+        whisper_model=TranscriptionModel.SENSEVOICE_SMALL,
+        char_timestamps=sample_char_timestamps,
+    )
+
+
+@pytest.fixture
+def sample_result_with_paragraphs() -> TranscriptionResult:
+    """带段落的转录结果"""
+    paragraphs = [
+        Paragraph(index=1, text="这是第一段文字。", start_time=0.0, end_time=5.0, segments=[]),
+        Paragraph(index=2, text="这是第二段文字。", start_time=5.5, end_time=10.0, segments=[]),
+    ]
+    return TranscriptionResult(
+        text="这是第一段文字。这是第二段文字。",
+        language="zh",
+        confidence=0.95,
+        segments=[
+            TranscriptionSegment(start_time=0.0, end_time=5.0, text="这是第一段文字。", confidence=0.95),
+            TranscriptionSegment(start_time=5.5, end_time=10.0, text="这是第二段文字。", confidence=0.95),
+        ],
+        processing_time=2.0,
+        whisper_model=TranscriptionModel.SENSEVOICE_SMALL,
+        paragraphs=paragraphs,
+    )
 
 
 def assert_transcription_result_valid(result: TranscriptionResult):

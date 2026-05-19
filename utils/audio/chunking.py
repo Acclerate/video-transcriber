@@ -303,8 +303,112 @@ class AudioChunker:
             "vad_segments": merged_vad_segments
         }
 
+        # 跨 chunk 漂移校正
+        if len(chunk_results) > 1 and merged_char_timestamps:
+            result["char_timestamps"] = self._correct_boundary_drift(
+                result["char_timestamps"], chunk_results, overlap_seconds
+            )
+            result["vad_segments"] = self._correct_vad_drift(
+                result["vad_segments"], chunk_results, overlap_seconds
+            )
+
         logger.info(f"合并完成: 总文本长度 {len(final_text)} 字符")
         return result
+
+    def _correct_boundary_drift(
+        self,
+        char_timestamps: List[dict],
+        chunk_results: List[dict],
+        overlap_seconds: float,
+        threshold: float = 0.3,
+    ) -> List[dict]:
+        """
+        校正跨 chunk 边界处 char_timestamps 的累积漂移。
+
+        检查每个 chunk 边界处实际时间戳与预期边界时间的偏差，
+        若偏差超过阈值，对后续所有时间戳做线性校正。
+        """
+        if not char_timestamps or len(chunk_results) <= 1:
+            return char_timestamps
+
+        corrected = list(char_timestamps)
+
+        for boundary_idx in range(len(chunk_results) - 1):
+            expected_boundary = chunk_results[boundary_idx].get("end_time", 0.0)
+
+            # 找到该边界附近的最后一个时间戳
+            # 在 expected_boundary ± overlap_seconds 范围内查找
+            search_start = expected_boundary - overlap_seconds - 1.0
+            search_end = expected_boundary + overlap_seconds + 1.0
+
+            boundary_ts = [
+                ts for ts in corrected
+                if search_start <= ts["start"] <= search_end
+            ]
+            if not boundary_ts:
+                continue
+
+            # 取边界附近时间戳的中位 end 值作为实际边界
+            ends = sorted(ts["end"] for ts in boundary_ts)
+            observed_boundary = ends[len(ends) // 2]
+
+            drift = observed_boundary - expected_boundary
+            if abs(drift) <= threshold:
+                continue
+
+            logger.info(f"Chunk 边界 {boundary_idx}->{boundary_idx + 1}: "
+                       f"检测到漂移 {drift:.3f}s (阈值 {threshold}s)，校正后续时间戳")
+
+            # 对 expected_boundary 之后的所有时间戳做线性校正
+            for j in range(len(corrected)):
+                if corrected[j]["start"] >= expected_boundary:
+                    corrected[j] = {
+                        "word": corrected[j]["word"],
+                        "start": round(corrected[j]["start"] - drift, 3),
+                        "end": round(corrected[j]["end"] - drift, 3),
+                    }
+
+        return corrected
+
+    def _correct_vad_drift(
+        self,
+        vad_segments: List[dict],
+        chunk_results: List[dict],
+        overlap_seconds: float,
+        threshold: float = 0.3,
+    ) -> List[dict]:
+        """与 _correct_boundary_drift 相同的逻辑，但应用于 VAD segments。"""
+        if not vad_segments or len(chunk_results) <= 1:
+            return vad_segments
+
+        corrected = list(vad_segments)
+
+        for boundary_idx in range(len(chunk_results) - 1):
+            expected_boundary = chunk_results[boundary_idx].get("end_time", 0.0)
+
+            near_boundary = [
+                vs for vs in corrected
+                if abs(vs["start_time"] - expected_boundary) <= overlap_seconds + 1.0
+            ]
+            if not near_boundary:
+                continue
+
+            ends = sorted(vs["end_time"] for vs in near_boundary)
+            observed_boundary = ends[len(ends) // 2]
+
+            drift = observed_boundary - expected_boundary
+            if abs(drift) <= threshold:
+                continue
+
+            for j in range(len(corrected)):
+                if corrected[j]["start_time"] >= expected_boundary:
+                    corrected[j] = {
+                        "start_time": round(corrected[j]["start_time"] - drift, 3),
+                        "end_time": round(corrected[j]["end_time"] - drift, 3),
+                        "text": corrected[j]["text"],
+                    }
+
+        return corrected
 
     async def cleanup_chunks(self, chunk_paths: List[str]):
         """

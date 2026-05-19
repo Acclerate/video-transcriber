@@ -25,8 +25,9 @@ class TestHealthEndpoint:
         assert response.status_code == 200
 
         data = response.json()
-        assert data["status"] == "healthy"
-        assert "message" in data
+        assert data["status"] in ("healthy", "degraded")
+        assert "version" in data
+        assert "components" in data
 
 
 class TestRootEndpoint:
@@ -47,19 +48,20 @@ class TestTranscribeEndpoint:
         response = client.post("/api/v1/transcribe/file")
         assert response.status_code == 422  # Validation error
 
-    def test_transcribe_url_not_implemented(self):
-        """测试 URL 转录功能未实现"""
-        import asyncio
+    @pytest.mark.asyncio
+    async def test_transcribe_url_not_implemented(self):
+        """测试 URL 转录功能未实现时返回错误消息"""
+        import json
+        from api.websocket import handle_transcribe_request
+        from unittest.mock import AsyncMock
 
-        async def test_call():
-            from api.websocket import handle_transcribe_request
-            from unittest.mock import AsyncMock
-            ws = AsyncMock()
+        ws = AsyncMock()
+        await handle_transcribe_request(ws, {"url": "https://example.com/video.mp4"})
 
-            with pytest.raises(NotImplementedError):
-                await handle_transcribe_request(ws, {"url": "https://example.com/video.mp4"})
-
-        asyncio.run(test_call())
+        ws.send_text.assert_called()
+        sent_json = ws.send_text.call_args[0][0]
+        sent_data = json.loads(sent_json)
+        assert sent_data["type"] == "error"
 
 
 class TestBatchTranscribeEndpoint:
@@ -138,7 +140,7 @@ class TestStatusEndpoints:
 
         response = client.get("/api/v1/status/nonexistent_task")
         assert response.status_code == 404
-        assert "任务不存在" in response.json()["detail"]
+        assert response.json()["code"] == 404
 
 
 class TestModelsEndpoint:

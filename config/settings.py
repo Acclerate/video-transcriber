@@ -69,6 +69,11 @@ class Settings(BaseSettings):
     # 例如：FA_TIME_OFFSET=0.2 延迟 200ms，FA_TIME_OFFSET=-0.2 提前 200ms
     FA_TIME_OFFSET: float = 0.0
 
+    # 字幕时间戳校准参数
+    SILENCE_SNAP_TOLERANCE: float = 0.2   # VAD 锚定容差（秒）
+    SILENCE_MIN_GAP: float = 0.05         # 最小静音间隔（秒），低于此值不校正
+    DRIFT_CORRECTION_THRESHOLD: float = 0.3  # 跨 chunk 漂移校正阈值（秒）
+
     # 文本后处理配置
     # 是否添加标点符号（使用FunASR的punctuation模型）
     ENABLE_PUNCTUATION: bool = True

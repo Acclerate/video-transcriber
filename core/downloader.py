@@ -285,6 +285,67 @@ class AudioExtractor:
             logger.error(f"音频优化失败: {e}")
             raise Exception(f"音频优化失败: {str(e)}")
 
+    def detect_silence_ranges(
+        self,
+        audio_path: str,
+        min_silence_len: int = 300,
+        silence_thresh: int = -40,
+        seek_step: int = 10,
+    ) -> list:
+        """
+        检测音频中的静音区间，返回静音段的起止时间列表（秒）。
+
+        Args:
+            audio_path: 音频文件路径
+            min_silence_len: 最小静音长度（毫秒）
+            silence_thresh: 静音阈值（dB）
+            seek_step: 检测步长（毫秒）
+
+        Returns:
+            List[Tuple[float, float]]: 静音区间列表，如 [(0.5, 1.2), (5.3, 6.1), ...]
+        """
+        try:
+            from pydub.silence import detect_nonsilent
+
+            audio = AudioSegment.from_file(audio_path)
+            total_ms = len(audio)
+
+            # detect_nonsilent 返回语音区间 [(start_ms, end_ms), ...]
+            speech_ranges = detect_nonsilent(
+                audio,
+                min_silence_len=min_silence_len,
+                silence_thresh=silence_thresh,
+                seek_step=seek_step,
+            )
+
+            if not speech_ranges:
+                # 全静音或全语音
+                if total_ms > min_silence_len:
+                    return [(0.0, total_ms / 1000.0)]
+                return []
+
+            # 反转：从语音区间推导静音区间
+            silence_ranges = []
+            prev_end = 0
+
+            for speech_start, speech_end in speech_ranges:
+                if speech_start - prev_end >= min_silence_len:
+                    silence_ranges.append((prev_end / 1000.0, speech_start / 1000.0))
+                prev_end = speech_end
+
+            # 结尾静音
+            if total_ms - prev_end >= min_silence_len:
+                silence_ranges.append((prev_end / 1000.0, total_ms / 1000.0))
+
+            return silence_ranges
+
+        except ImportError:
+            logger.warning("pydub.silence 不可用，跳过静音检测")
+            return []
+        except Exception as e:
+            logger.warning(f"静音检测失败: {e}")
+            return []
+
     def _remove_silence(self, audio: AudioSegment, silence_thresh: int = -40) -> AudioSegment:
         """去除音频中的静音片段"""
         try:
