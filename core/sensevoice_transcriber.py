@@ -1196,6 +1196,23 @@ class SenseVoiceTranscriber:
                             raw_text, punctuated_text, char_timestamps
                         )
 
+                    # VAD 边界锚定
+                    if vad_segments and segments:
+                        try:
+                            from utils.subtitle_timing import anchor_segments_to_vad
+                            segments = anchor_segments_to_vad(segments, vad_segments)
+                        except Exception as e:
+                            logger.warning(f"VAD 边界锚定失败: {e}")
+
+                    # 静音区间约束
+                    silence = getattr(self, 'silence_ranges', None)
+                    if silence and segments:
+                        try:
+                            from utils.subtitle_timing import enforce_silence_boundaries
+                            segments = enforce_silence_boundaries(segments, silence)
+                        except Exception as e:
+                            logger.warning(f"静音边界约束失败: {e}")
+
                 # 最终文本使用原始文本（不含标点）
                 text = raw_text
 
@@ -1283,7 +1300,7 @@ class SenseVoiceTranscriber:
                     self._fa_aligner = ForcedAligner(
                         model_cache_dir=self.model_cache_dir,
                         device=self.device,
-                        force_time_shift=getattr(self, '_force_time_shift', 0.0),
+                        force_time_shift=settings.FA_TIME_OFFSET,
                     )
                     if not self._fa_aligner.load_model():
                         self._fa_aligner = None
@@ -1468,175 +1485,6 @@ class SenseVoiceTranscriber:
                         if self._fa_aligner is not None:
                             self._fa_aligner.unload_model()
                             self._fa_aligner = None
-
-            return {
-                "text": text,
-                "segments": [],
-                "vad_segments": chunk_vad_segments,
-                "language": language,
-                "confidence": 0.95,
-                "processing_time": processing_time,
-                "start_time": chunk_start,
-                "end_time": chunk_end,
-                "char_timestamps": char_ts_list
-            }
-
-        except Exception as e:
-            logger.error(f"处理音频块失败: {e}")
-            raise
-
-    async def _transcribe_with_chunking(
-        self,
-        audio_path: str,
-        language: str,
-        with_timestamps: bool,
-        progress_callback: Optional[Callable[[float], None]],
-        start_time: float,
-        timestamp_mode: str = "none"
-    ) -> TranscriptionResult:
-        """
-        使用分块处理转录长音频
-
-        Args:
-            audio_path: 音频文件路径
-            language: 语言代码
-            with_timestamps: 是否包含时间戳
-            progress_callback: 进度回调
-            start_time: 开始时间
-            timestamp_mode: 时间戳模式
-
-        Returns:
-            TranscriptionResult: 转录结果
-        """
-
-        try:
-            # 分割音频
-            logger.info("开始分割音频...")
-            chunks = await self.audio_chunker.split_audio(
-                audio_path,
-                temp_dir=self.model_cache_dir
-            )
-
-            if not chunks:
-                raise Exception("音频分割失败，未生成任何块")
-
-            logger.info(f"音频已分割为 {len(chunks)} 个块")
-
-            # 处理每个块
-            chunk_results = []
-            total_chunks = len(chunks)
-
-            for i, (chunk_path, chunk_start, chunk_end) in enumerate(chunks):
-                try:
-                    logger.info(f"处理块 {i+1}/{total_chunks}: {chunk_start:.1f}s - {chunk_end:.1f}s")
-
-                    # 更新进度
-                    if progress_callback:
-                        progress = 20 + (60 * (i + 1) / total_chunks)
-                        progress_callback(progress)
-
-                    # 处理单个块
-                    chunk_result = await self._transcribe_single_chunk(
-                        chunk_path, language, with_timestamps, chunk_start, chunk_end,
-                        timestamp_mode=timestamp_mode
-                    )
-                    chunk_results.append(chunk_result)
-
-                    # 释放 GPU 内存
-                    if torch.cuda.is_available():
-                        torch.cuda.empty_cache()
-
-                except Exception as e:
-                    logger.error(f"处理块 {i+1} 失败: {e}")
-                    # 继续处理下一个块，不中断整个流程
-                    chunk_results.append({
-                        "text": "",
-                        "segments": [],
-                        "language": language,
-                        "confidence": 0.0,
-                        "processing_time": 0.0,
-                        "start_time": chunk_start,
-                        "end_time": chunk_end
-                    })
-
-            # 清理临时文件
-            chunk_paths = [chunk[0] for chunk in chunks]
-            await self.audio_chunker.cleanup_chunks(chunk_paths)
-
-            # 合并结果
-            logger.info("合并分块转录结果...")
-            merged_result = self.audio_chunker.merge_results(
-                chunk_results,
-                overlap_seconds=self.chunk_overlap_seconds
-            )
-
-            return self._postprocess_chunked_result(
-                merged_result, language, timestamp_mode, start_time,
-                silence_ranges=getattr(self, 'silence_ranges', None),
-            )
-
-        except Exception as e:
-            import traceback
-            logger.error(f"分块转录失败: {e}")
-            logger.error(f"堆栈跟踪:\n{traceback.format_exc()}")
-            raise Exception(f"分块转录失败: {str(e)}")
-
-    async def _transcribe_single_chunk(
-        self,
-        chunk_path: str,
-        language: str,
-        with_timestamps: bool,
-        chunk_start: float,
-        chunk_end: float,
-        timestamp_mode: str = "none"
-    ) -> dict:
-        """
-        转录单个音频块
-
-        Args:
-            chunk_path: 音频块文件路径
-            language: 语言代码
-            with_timestamps: 是否包含时间戳
-            chunk_start: 块开始时间
-            chunk_end: 块结束时间
-            timestamp_mode: 时间戳模式
-
-        Returns:
-            dict: 转录结果
-        """
-
-        try:
-            start = time.time()
-
-            # 验证文件
-            if not os.path.exists(chunk_path):
-                raise Exception(f"音频块文件不存在: {chunk_path}")
-
-            file_size = os.path.getsize(chunk_path)
-            logger.debug(f"处理音频块: {chunk_path}, 大小: {file_size} 字节")
-
-            # SenseVoice 推理参数
-            rec_config_kwargs = self._build_rec_config(language, timestamp_mode)
-
-            # 执行推理
-            result = self.model.generate(
-                input=chunk_path,
-                cache_path=self.model_cache_dir,
-                **rec_config_kwargs
-            )
-
-            processing_time = time.time() - start
-
-            # 提取文本
-            text = self._extract_text_from_result(result)
-
-            # 提取 VAD 分段（SenseVoice merge_vad 产生的人声分段）
-            chunk_vad_segments = self._extract_vad_segments_from_result(result, chunk_start)
-
-            # 提取逐字时间戳（如果启用）
-            char_ts_list = []
-            if timestamp_mode in ("char", "sentence"):
-                char_ts_list = self._extract_char_ts_from_raw_result(result, chunk_start)
 
             return {
                 "text": text,
