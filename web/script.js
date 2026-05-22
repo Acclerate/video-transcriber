@@ -191,11 +191,12 @@ class VideoTranscriberUI {
 
         // 输出格式改变事件
         document.getElementById('outputFormat').addEventListener('change', (e) => {
+            const isSubtitle = (e.target.value === 'srt' || e.target.value === 'vtt');
             const timestamps = document.getElementById('timestamps');
-            timestamps.disabled = e.target.value === 'txt';
-            if (e.target.value === 'txt') {
-                timestamps.checked = false;
-            }
+            const timestampModeOption = document.getElementById('timestampModeOption');
+            if (timestamps) timestamps.disabled = !isSubtitle;
+            if (timestamps) timestamps.checked = isSubtitle;
+            if (timestampModeOption) timestampModeOption.style.display = isSubtitle ? '' : 'none';
         });
 
         // 主题切换
@@ -885,14 +886,24 @@ class VideoTranscriberUI {
             const cancelBtn = document.getElementById('cancelTaskBtn');
             if (cancelBtn) cancelBtn.style.display = '';
 
+            const fmt = document.getElementById('outputFormat').value;
+            const isSubtitle = (fmt === 'srt' || fmt === 'vtt');
+
             const formData = new FormData();
             formData.append('file', this.selectedFile);
             formData.append('model', document.getElementById('model').value);
             formData.append('language', document.getElementById('language').value);
-            formData.append('with_timestamps', document.getElementById('timestamps').checked);
-            formData.append('output_format', document.getElementById('outputFormat').value);
 
-            const response = await fetch(`${this.apiBaseUrl}/api/v1/transcribe/file`, {
+            let endpoint;
+            if (isSubtitle) {
+                endpoint = `${this.apiBaseUrl}/api/v1/transcribe/subtitle`;
+                const tsMode = document.getElementById('timestampMode');
+                formData.append('timestamp_mode', tsMode ? tsMode.value : 'sentence');
+            } else {
+                endpoint = `${this.apiBaseUrl}/api/v1/transcribe/text`;
+            }
+
+            const response = await fetch(endpoint, {
                 method: 'POST',
                 body: formData
             });

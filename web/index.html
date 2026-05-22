@@ -181,10 +181,17 @@
                                     </div>
                                     <div class="option-item option-item-check">
                                         <div class="form-check">
-                                            <input class="form-check-input" type="checkbox" id="timestamps">
-                                            <label class="form-check-label" for="timestamps">
+                                            <input class="form-check-input" type="checkbox" id="timestamps" style="display:none;">
+                                            <label class="form-check-label" for="timestamps" style="display:none;">
                                                 包含时间戳
                                             </label>
+                                        </div>
+                                        <div id="timestampModeOption" style="display: none;">
+                                            <label for="timestampMode" class="form-label">时间戳粒度</label>
+                                            <select class="form-select" id="timestampMode">
+                                                <option value="sentence" selected>句子级</option>
+                                                <option value="char">逐字级</option>
+                                            </select>
                                         </div>
                                     </div>
                                 </div>

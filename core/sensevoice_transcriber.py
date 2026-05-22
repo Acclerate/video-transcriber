@@ -1214,8 +1214,8 @@ class SenseVoiceTranscriber:
                         except Exception as e:
                             logger.warning(f"静音边界约束失败: {e}")
 
-                # 最终文本使用原始文本（不含标点）
-                text = raw_text
+                # 文本模式使用带标点的文本，字幕模式使用原始文本（不含标点）
+                text = punctuated_text if actual_mode == "none" else raw_text
 
             # 最终验证：确保我们有有效的文本
             if not text or not text.strip():
@@ -1746,14 +1746,20 @@ class SenseVoiceTranscriber:
         char_timestamps: List[CharTimestamp],
         raw_text: str,
     ) -> List[Tuple[float, float]]:
-        """构建 raw_text 每个字符的时间映射 [(start, end), ...]"""
+        """构建 raw_text 每个字符的时间映射 [(start, end), ...]
+
+        使用内容对齐而非顺序映射，正确处理分块合并后 text 与 char_ts
+        因重叠区域不同处理策略导致的位置偏移问题。
+        """
         expanded_ts = self._expand_subtitle_char_timestamps([
             ts for ts in char_timestamps if ts.word and ts.end >= ts.start
         ])
         if not expanded_ts:
             return []
 
+        # 展开为逐字符时间戳
         char_times: List[Tuple[float, float]] = []
+        ts_text_parts: List[str] = []
         for ts in expanded_ts:
             n_chars = len(ts.word)
             if n_chars == 1:
@@ -1765,31 +1771,108 @@ class SenseVoiceTranscriber:
                         round(ts.start + dur * i, 3),
                         round(ts.start + dur * (i + 1), 3),
                     ))
+            ts_text_parts.append(ts.word)
 
-        # 填充不足的部分：使用局部语音速率（取末尾 200 个条目的速率）
-        if len(char_times) < len(raw_text):
-            deficit = len(raw_text) - len(char_times)
-            if char_times:
-                # 从末尾的真实时间戳计算局部速率
-                tail_n = min(200, len(char_times))
-                tail_dur = char_times[-1][1] - char_times[-tail_n][0]
-                tail_chars = tail_n
-                avg_char_dur = tail_dur / tail_chars if tail_chars > 0 else 0.1
-                avg_char_dur = max(0.05, min(0.25, avg_char_dur))
-            else:
-                avg_char_dur = 0.1
+        if not char_times:
+            return []
+
+        ts_text = "".join(ts_text_parts)
+
+        # --- 内容对齐：ts_text 是 raw_text 的子序列 ---
+        # raw_text 包含重叠区域的重复文本，ts_text 已去除重叠 char_ts
+        # 用双指针对齐，将 char_times 映射到 raw_text 的正确位置
+        char_time_map: List[Optional[Tuple[float, float]]] = [None] * len(raw_text)
+
+        ts_idx = 0
+        for raw_idx in range(len(raw_text)):
+            if ts_idx < len(ts_text) and raw_text[raw_idx] == ts_text[ts_idx]:
+                char_time_map[raw_idx] = char_times[ts_idx]
+                ts_idx += 1
+
+        matched = sum(1 for x in char_time_map if x is not None)
+        if matched < len(char_times) * 0.5:
             logger.warning(
-                f"char_time_map 数量不足: {len(char_times)} 个时间戳 vs {len(raw_text)} 个字符, "
-                f"差额 {deficit} 字符将以 {avg_char_dur:.3f}s/char 填充"
+                f"内容对齐匹配率低: {matched}/{len(char_times)} "
+                f"({matched / len(char_times) * 100:.1f}%)，回退到顺序映射"
             )
-            while len(char_times) < len(raw_text):
-                if char_times:
-                    last = char_times[-1]
-                    char_times.append((round(last[1], 3), round(last[1] + avg_char_dur, 3)))
+            # 回退到顺序映射
+            result = list(char_times)
+            while len(result) < len(raw_text):
+                if result:
+                    last = result[-1]
+                    avg_dur = max(0.05, min(0.25, last[1] - last[0]))
+                    result.append((round(last[1], 3), round(last[1] + avg_dur, 3)))
                 else:
-                    char_times.append((0.0, round(avg_char_dur, 3)))
+                    result.append((0.0, 0.1))
+            return result[:len(raw_text)]
 
-        return char_times
+        # 填充未映射的位置（重叠文本和 deficit 区域）
+        self._fill_char_time_map_gaps(char_time_map, char_times)
+
+        logger.info(
+            f"char_time_map 内容对齐: {matched}/{len(raw_text)} 个字符有精确时间戳, "
+            f"{len(raw_text) - matched} 个字符使用插值"
+        )
+        return char_time_map
+
+    def _fill_char_time_map_gaps(
+        self,
+        char_time_map: List[Optional[Tuple[float, float]]],
+        char_times: List[Tuple[float, float]],
+    ) -> None:
+        """填充 char_time_map 中 None 的位置（插值/外推）"""
+        n = len(char_time_map)
+
+        # 收集所有已映射的位置
+        mapped: List[Tuple[int, Tuple[float, float]]] = [
+            (i, char_time_map[i]) for i in range(n) if char_time_map[i] is not None
+        ]
+
+        if not mapped:
+            avg_dur = 0.1
+            for i in range(n):
+                char_time_map[i] = (round(i * avg_dur, 3), round((i + 1) * avg_dur, 3))
+            return
+
+        # 前缀：第一个映射位置之前的部分，向前外推
+        first_idx, (first_start, first_end) = mapped[0]
+        if first_idx > 0:
+            avg_dur = max(0.05, min(0.3, first_end - first_start))
+            for i in range(first_idx):
+                t_start = first_start - avg_dur * (first_idx - i)
+                t_end = first_start - avg_dur * (first_idx - i - 1)
+                char_time_map[i] = (round(t_start, 3), round(t_end, 3))
+
+        # 中间间隙：在相邻映射位置之间线性插值
+        for k in range(len(mapped) - 1):
+            idx_a, (start_a, end_a) = mapped[k]
+            idx_b, (start_b, end_b) = mapped[k + 1]
+            gap_len = idx_b - idx_a - 1
+            if gap_len > 0:
+                total_dur = start_b - end_a
+                char_dur = total_dur / (gap_len + 1)
+                char_dur = max(0.02, char_dur)
+                for j in range(gap_len):
+                    pos = idx_a + 1 + j
+                    t_start = round(end_a + char_dur * j, 3)
+                    t_end = round(t_start + char_dur, 3)
+                    char_time_map[pos] = (t_start, t_end)
+
+        # 后缀：最后一个映射位置之后的部分，向后外推
+        last_idx, (last_start, last_end) = mapped[-1]
+        if last_idx < n - 1:
+            tail_n = min(200, len(mapped))
+            if tail_n >= 2:
+                tail_start_idx, (tail_start_time, _) = mapped[-tail_n]
+                tail_dur = last_end - tail_start_time
+                tail_chars = last_idx - tail_start_idx
+                avg_dur = tail_dur / tail_chars if tail_chars > 0 else 0.1
+            else:
+                avg_dur = max(0.05, last_end - last_start)
+            avg_dur = max(0.05, min(0.25, avg_dur))
+            for i in range(last_idx + 1, n):
+                prev_end = char_time_map[i - 1][1]
+                char_time_map[i] = (round(prev_end, 3), round(prev_end + avg_dur, 3))
 
     def _calibrate_char_time_map(
         self,
@@ -2234,9 +2317,11 @@ class SenseVoiceTranscriber:
             if t_end <= t_start:
                 t_end = t_start + 0.1
 
+            seg_start = round(t_start, 3)
+            seg_end = max(round(t_end, 3), seg_start + 0.001)
             segments.append(TranscriptionSegment(
-                start_time=round(t_start, 3),
-                end_time=round(t_end, 3),
+                start_time=seg_start,
+                end_time=seg_end,
                 text=sub_text,
                 confidence=0.95,
             ))
@@ -2252,9 +2337,11 @@ class SenseVoiceTranscriber:
             else:
                 start_idx = seg_start_in_raw + prev_offset
             t_start = char_time_map[start_idx][0] if start_idx < len(char_time_map) else vad_start
+            seg_start = round(t_start, 3)
+            seg_end = max(round(vad_end, 3), seg_start + 0.001)
             segments.append(TranscriptionSegment(
-                start_time=round(t_start, 3),
-                end_time=vad_end,
+                start_time=seg_start,
+                end_time=seg_end,
                 text=remaining,
                 confidence=0.95,
             ))
@@ -3441,8 +3528,8 @@ class SenseVoiceTranscriber:
             except Exception as e:
                 logger.warning(f"静音边界约束失败: {e}")
 
-        # 最终文本使用原始文本（不含标点）
-        final_text = raw_text
+        # 文本模式使用带标点的文本，字幕模式使用原始文本（不含标点）
+        final_text = punctuated_text if timestamp_mode == "none" else raw_text
 
         processing_time = time.time() - start_time
         logger.info(f"分块转录完成，总耗时: {processing_time:.2f}秒")

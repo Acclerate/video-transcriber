@@ -17,7 +17,8 @@ from loguru import logger
 from config import settings
 from models.schemas import (
     ProcessOptions, APIResponse, TranscribeResponse,
-    TranscriptionResult, TranscriptionModel, Language, OutputFormat, TimestampMode
+    TranscriptionResult, TranscriptionModel, Language, OutputFormat, TimestampMode,
+    TranscriptionMode
 )
 from services import TranscriptionService, FileService
 
@@ -91,8 +92,141 @@ def detect_log_level(line: str) -> str:
 
 
 # ============================================================
+# 公共辅助函数
+# ============================================================
+
+async def _save_and_validate_upload(
+    file: UploadFile,
+    file_service: FileService
+) -> str:
+    """保存上传文件并验证，返回文件路径。验证失败时抛出 HTTPException。"""
+    temp_dir = file_service.ensure_directory(settings.temp_path)
+    safe_filename = file_service.get_safe_filename(file.filename)
+    file_path = file_service.get_unique_filepath(
+        str(temp_dir),
+        safe_filename,
+        Path(file.filename).suffix
+    )
+
+    with open(file_path, "wb") as f:
+        content = await file.read()
+        f.write(content)
+
+    is_valid, error_msg = await file_service.validate_file(
+        file_path,
+        settings.MAX_FILE_SIZE
+    )
+
+    if not is_valid:
+        Path(file_path).unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail=error_msg)
+
+    return file_path
+
+
+# ============================================================
 # 转录端点
 # ============================================================
+
+@transcribe_router.post("/text")
+@limiter.limit(f"{settings.RATE_LIMIT_PER_MINUTE}/minute")
+async def transcribe_text(
+    request: Request,
+    file: UploadFile = File(...),
+    model: str = Form(default=settings.DEFAULT_MODEL),
+    language: str = Form(default="auto"),
+    service: TranscriptionService = Depends(get_transcription_service),
+    file_service: FileService = Depends(get_file_service)
+):
+    """
+    文本转录（异步任务模式）
+
+    生成带标点符号和自然分段的文本，适用于阅读场景。
+    不包含时间戳信息。
+    """
+    try:
+        file_path = await _save_and_validate_upload(file, file_service)
+
+        normalized_model = normalize_model_name(model)
+        options = service.build_text_options(
+            model=normalized_model,
+            language=language,
+            enable_gpu=settings.ENABLE_GPU,
+            temperature=settings.DEFAULT_TEMPERATURE,
+        )
+
+        task_id = service.create_task_id()
+        service.register_task_temp_file(task_id, file_path)
+        asyncio.create_task(
+            service.transcribe_file(file_path, options, task_id=task_id)
+        )
+
+        return JSONResponse(
+            status_code=202,
+            content={
+                "code": 202,
+                "message": "文本转录任务已提交",
+                "data": {"task_id": task_id}
+            }
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"文本转录提交失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@transcribe_router.post("/subtitle")
+@limiter.limit(f"{settings.RATE_LIMIT_PER_MINUTE}/minute")
+async def transcribe_subtitle(
+    request: Request,
+    file: UploadFile = File(...),
+    model: str = Form(default=settings.DEFAULT_MODEL),
+    language: str = Form(default="auto"),
+    timestamp_mode: str = Form(default="sentence"),
+    service: TranscriptionService = Depends(get_transcription_service),
+    file_service: FileService = Depends(get_file_service)
+):
+    """
+    字幕生成（异步任务模式）
+
+    生成带时间戳的字幕分段，适用于 SRT/VTT 等字幕场景。
+    文本不含标点符号，按时间分段输出。
+    """
+    try:
+        file_path = await _save_and_validate_upload(file, file_service)
+
+        normalized_model = normalize_model_name(model)
+        options = service.build_subtitle_options(
+            model=normalized_model,
+            language=language,
+            timestamp_mode=timestamp_mode,
+            enable_gpu=settings.ENABLE_GPU,
+            temperature=settings.DEFAULT_TEMPERATURE,
+        )
+
+        task_id = service.create_task_id()
+        service.register_task_temp_file(task_id, file_path)
+        asyncio.create_task(
+            service.transcribe_file(file_path, options, task_id=task_id)
+        )
+
+        return JSONResponse(
+            status_code=202,
+            content={
+                "code": 202,
+                "message": "字幕生成任务已提交",
+                "data": {"task_id": task_id}
+            }
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"字幕生成提交失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @transcribe_router.post("/file")
 @limiter.limit(f"{settings.RATE_LIMIT_PER_MINUTE}/minute")
@@ -115,28 +249,7 @@ async def transcribe_file(
     提交后立即返回 task_id，通过 GET /task/{task_id} 轮询进度和结果。
     """
     try:
-        # 保存上传的文件
-        temp_dir = file_service.ensure_directory(settings.temp_path)
-        safe_filename = file_service.get_safe_filename(file.filename)
-        file_path = file_service.get_unique_filepath(
-            str(temp_dir),
-            safe_filename,
-            Path(file.filename).suffix
-        )
-
-        with open(file_path, "wb") as f:
-            content = await file.read()
-            f.write(content)
-
-        # 验证文件
-        is_valid, error_msg = await file_service.validate_file(
-            file_path,
-            settings.MAX_FILE_SIZE
-        )
-
-        if not is_valid:
-            Path(file_path).unlink(missing_ok=True)
-            raise HTTPException(status_code=400, detail=error_msg)
+        file_path = await _save_and_validate_upload(file, file_service)
 
         # 准备处理选项
         normalized_model = normalize_model_name(model)

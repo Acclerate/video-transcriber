@@ -57,6 +57,13 @@ class TimestampMode(str, Enum):
     CHAR = "char"
 
 
+class TranscriptionMode(str, Enum):
+    """转录模式：文本转录(带标点分段) / 字幕生成(带时间戳分段) / 旧版兼容"""
+    TEXT = "text"
+    SUBTITLE = "subtitle"
+    LEGACY = "legacy"
+
+
 class Language(str, Enum):
     """支持的语言"""
     AUTO = "auto"
@@ -200,6 +207,7 @@ class ProcessOptions(BaseModel):
     output_format: OutputFormat = Field(OutputFormat.JSON, description="输出格式")
     enable_gpu: Optional[bool] = Field(None, description="是否启用GPU")
     temperature: float = Field(0.0, ge=0.0, le=1.0, description="采样温度")
+    transcription_mode: TranscriptionMode = Field(TranscriptionMode.LEGACY, description="转录模式: text/subtitle/legacy")
 
     class Config:
         use_enum_values = True
@@ -424,7 +432,7 @@ __all__ = [
     # 枚举
     "TaskStatus", "TranscriptionModel", "OutputFormat", "Language",
     "MediaFormat", "VideoFormat", "WSMessageType", "ErrorCode",
-    "TimestampMode",
+    "TimestampMode", "TranscriptionMode",
 
     # 基础模型
     "MediaFileInfo", "VideoFileInfo", "CharTimestamp",

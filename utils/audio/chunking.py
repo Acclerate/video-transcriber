@@ -246,17 +246,13 @@ class AudioChunker:
                             "end": round(ts["end"], 3)
                         })
 
-                # VAD 分段：合并重叠区段，追加非重叠区段
+                # VAD 分段：合并重叠区段，只扩展时间范围不替换文本
+                # 保持原始文本不变，确保 VAD 文本与 raw_text 开头对齐
                 if chunk_vad_segs:
                     for vad_seg in chunk_vad_segs:
                         if merged_vad_segments and vad_seg["start_time"] < merged_vad_segments[-1]["end_time"]:
                             last = merged_vad_segments[-1]
-                            overlap = last["end_time"] - vad_seg["start_time"]
-                            if overlap > 0 and len(last.get("text", "")) < len(vad_seg.get("text", "")):
-                                last["end_time"] = vad_seg["end_time"]
-                                last["text"] = vad_seg.get("text", last.get("text", ""))
-                            else:
-                                last["end_time"] = max(last["end_time"], vad_seg["end_time"])
+                            last["end_time"] = max(last["end_time"], vad_seg["end_time"])
                             continue
                         merged_vad_segments.append(vad_seg)
 

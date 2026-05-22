@@ -15,7 +15,8 @@ from loguru import logger
 from config import settings, Settings
 from models.schemas import (
     TranscriptionResult, TaskInfo, TaskStatus,
-    ProcessOptions, TranscriptionModel, Language, OutputFormat, TimestampMode
+    ProcessOptions, TranscriptionModel, Language, OutputFormat, TimestampMode,
+    TranscriptionMode
 )
 from core.downloader import AudioExtractor
 from .file_service import FileService
@@ -433,12 +434,14 @@ class TranscriptionService:
         # 卸载模型释放内存
         await transcriber.unload_model()
 
-        # 段落格式化
-        if getattr(self.config, 'ENABLE_PARAGRAPH_FORMATTING', True):
-            try:
-                _apply_paragraph_formatting(result, self.config)
-            except Exception as e:
-                logger.warning(f"段落格式化失败，跳过: {e}")
+        # 段落格式化 — 仅文本模式和旧版模式需要
+        mode = getattr(options, 'transcription_mode', TranscriptionMode.LEGACY)
+        if mode in (TranscriptionMode.TEXT, TranscriptionMode.LEGACY):
+            if getattr(self.config, 'ENABLE_PARAGRAPH_FORMATTING', True):
+                try:
+                    _apply_paragraph_formatting(result, self.config)
+                except Exception as e:
+                    logger.warning(f"段落格式化失败，跳过: {e}")
 
         return result
 
@@ -563,6 +566,41 @@ class TranscriptionService:
     async def cleanup_temp_files(self) -> int:
         """清理临时文件"""
         return self.audio_extractor.cleanup_files()
+
+    def build_text_options(self, model: str = "sensevoice-small", language: str = "auto",
+                           enable_gpu: Optional[bool] = None, temperature: float = 0.0) -> ProcessOptions:
+        """构建文本转录选项：带标点、分段，无时间戳。"""
+        return ProcessOptions(
+            model=TranscriptionModel(model),
+            language=Language(language),
+            with_timestamps=False,
+            timestamp_mode=TimestampMode.NONE,
+            output_format=OutputFormat.TXT,
+            enable_gpu=enable_gpu if enable_gpu is not None else self.config.ENABLE_GPU,
+            temperature=temperature,
+            transcription_mode=TranscriptionMode.TEXT,
+        )
+
+    def build_subtitle_options(self, model: str = "sensevoice-small", language: str = "auto",
+                               timestamp_mode: str = "sentence",
+                               enable_gpu: Optional[bool] = None, temperature: float = 0.0) -> ProcessOptions:
+        """构建字幕生成选项：带时间戳分段，无标点段落。"""
+        try:
+            ts_mode = TimestampMode(timestamp_mode)
+        except ValueError:
+            ts_mode = TimestampMode.SENTENCE
+        if ts_mode == TimestampMode.NONE:
+            ts_mode = TimestampMode.SENTENCE
+        return ProcessOptions(
+            model=TranscriptionModel(model),
+            language=Language(language),
+            with_timestamps=True,
+            timestamp_mode=ts_mode,
+            output_format=OutputFormat.JSON,
+            enable_gpu=enable_gpu if enable_gpu is not None else self.config.ENABLE_GPU,
+            temperature=temperature,
+            transcription_mode=TranscriptionMode.SUBTITLE,
+        )
 
     def reformat_paragraphs(self) -> int:
         """
