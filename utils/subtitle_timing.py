@@ -86,9 +86,10 @@ def fix_subtitle_segment_timing(
         cur = cleaned[i]
         if cur.start_time < prev.end_time:
             overlap_fixed += 1
+            new_end = max(round(cur.start_time, 3), prev.start_time + 0.001)
             cleaned[i - 1] = TranscriptionSegment(
                 start_time=prev.start_time,
-                end_time=round(cur.start_time, 3),
+                end_time=new_end,
                 text=prev.text,
                 confidence=prev.confidence,
                 char_timestamps=getattr(prev, "char_timestamps", []),

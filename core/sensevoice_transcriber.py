@@ -437,6 +437,8 @@ class SenseVoiceTranscriber:
 
         if cleaned_text != text:
             logger.info(f"特殊标记已清理: 原始长度={len(text)}, 清理后长度={len(cleaned_text)}")
+            if not cleaned_text:
+                logger.warning(f"清理后文本为空，原始内容: {text[:200]}")
 
         return cleaned_text
 
@@ -2057,7 +2059,7 @@ class SenseVoiceTranscriber:
         raw_text: str = "",
     ) -> List[TranscriptionSegment]:
         """在标点位置切分过长的 VAD 分段。"""
-        sentence_ends = set("。！？!?")
+        sentence_ends = set("。！？!?.")
         clause_ends = set("，,；;：:")
 
         # 建立 raw_text → seg_text 和 seg_text → raw_text 的位置映射
@@ -2437,7 +2439,7 @@ class SenseVoiceTranscriber:
                 punct_to_raw.append(-1)
 
         # 步骤3: 在 punctuated_text 中找到标点位置（句子边界）
-        sentence_ends = set("。！？!?")
+        sentence_ends = set("。！？!?.")
         clause_ends = set("，,；;：:")
 
         # 收集所有标点位置
@@ -2775,7 +2777,7 @@ class SenseVoiceTranscriber:
         Returns:
             List[(sentence_text, start_char_pos, end_char_pos)]
         """
-        sentence_ends = set("。！？!?")
+        sentence_ends = set("。！？!?.")
         clause_ends = set("，,；;：:")
 
         sentences = []
@@ -2920,7 +2922,7 @@ class SenseVoiceTranscriber:
         if not raw_text or not punctuated_text:
             return positions
 
-        sentence_ends = set("。！？!?")
+        sentence_ends = set("。！？!?.")
         clause_ends = set("，,；;：:")
 
         raw_idx = 0
@@ -3477,6 +3479,12 @@ class SenseVoiceTranscriber:
         if raw_text:
             raw_text = self._clean_special_tokens(raw_text)
 
+        if not raw_text:
+            logger.warning(
+                f"转录结果为空: 原始文本长度={len(merged_result.get('text', ''))}, "
+                f"音频时长={merged_result.get('end_time', 0) - merged_result.get('start_time', 0):.1f}s"
+            )
+
         # 添加标点符号（仅用于确定断句位置）
         punctuated_text = raw_text
         if raw_text and self.enable_punctuation:
@@ -3686,15 +3694,13 @@ class SenseVoiceTranscriber:
                         continue
 
                 if valid_starts and valid_ends:
-                    # 使用实际时间戳边界
-                    seg_text = ''.join(
+                    # 优先使用 entry_text（保留空格，适合英文等多语言文本）
+                    seg_text = entry_text if entry_text else ''.join(
                         self._clean_special_tokens(str(w))
                         for w in words
                         if self._clean_special_tokens(str(w))
                         and not self._clean_special_tokens(str(w)).startswith("<|")
                     )
-                    if not seg_text:
-                        seg_text = entry_text
                     vad_segments.append({
                         "text": seg_text,
                         "start_time": round(min(valid_starts), 3),
