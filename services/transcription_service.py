@@ -120,17 +120,14 @@ class TranscriptionService:
             )
             self.task_service.add_task(task_id, task_info)
 
-        audio_path: Optional[str] = None
+        timeout_seconds = timeout if timeout is not None else self.config.TASK_TIMEOUT
 
-        try:
-            logger.info(f"开始处理媒体文件: {file_path}")
-            self._register_running_task(task_id)
-
+        async def _run_pipeline() -> TranscriptionResult:
             # 验证文件
             await self._validate_file(file_path, task_id, progress_callback)
 
-            # 获取媒体信息
-            media_info = self.audio_extractor.get_media_info(file_path)
+            # 获取媒体信息（同步 ffprobe 调用，放入线程池避免阻塞事件循环）
+            media_info = await asyncio.to_thread(self.audio_extractor.get_media_info, file_path)
             task_info.media_info = media_info
 
             # 提取音频
@@ -142,10 +139,17 @@ class TranscriptionService:
 
             # 执行转录
             self.task_service.update_task_status(task_id, TaskStatus.TRANSCRIBING)
-            result = await self._transcribe(
+            return await self._transcribe(
                 audio_path, options, task_id, progress_callback,
                 raw_audio_path=raw_audio_path,
             )
+
+        try:
+            logger.info(f"开始处理媒体文件: {file_path}")
+            self._register_running_task(task_id)
+
+            # 强制执行任务超时（TASK_TIMEOUT 配置在此真正生效）
+            result = await asyncio.wait_for(_run_pipeline(), timeout=timeout_seconds)
 
             # 更新任务状态
             task_info.result = result
@@ -356,9 +360,9 @@ class TranscriptionService:
         from core.sensevoice_transcriber import create_sensevoice_transcriber
         from utils.audio.chunking import AudioChunker
 
-        # 获取音频时长
+        # 获取音频时长（同步 ffprobe 调用，放入线程池避免阻塞事件循环）
         chunker = AudioChunker()
-        audio_duration = chunker.get_audio_duration(audio_path)
+        audio_duration = await asyncio.to_thread(chunker.get_audio_duration, audio_path)
 
         # 智能设备选择：启用分块时可以使用 GPU 处理更长的音频
         device = "cuda" if options.enable_gpu else "cpu"
@@ -406,33 +410,36 @@ class TranscriptionService:
         if timestamp_mode_str in ("char", "sentence"):
             try:
                 silence_source = raw_audio_path or audio_path
-                silence_ranges = self.audio_extractor.detect_silence_ranges(
-                    audio_path=silence_source,
-                    min_silence_len=300,
-                    silence_thresh=-40,
-                    seek_step=10,
+                # pydub 全量解码 + 静音分析是同步重负载，放入线程池避免阻塞事件循环
+                silence_ranges = await asyncio.to_thread(
+                    self.audio_extractor.detect_silence_ranges,
+                    silence_source,
+                    300,
+                    -40,
+                    10,
                 )
                 if silence_ranges:
                     logger.info(f"检测到 {len(silence_ranges)} 个音频停顿位置，用于优化字幕切分")
             except Exception as e:
                 logger.warning(f"检测音频停顿位置失败，跳过: {e}")
 
-        result = await transcriber.transcribe_audio(
-            audio_path=audio_path,
-            language=options.language,
-            with_timestamps=options.with_timestamps,
-            temperature=options.temperature,
-            progress_callback=update_progress,
-            timestamp_mode=timestamp_mode.value if hasattr(timestamp_mode, 'value') else str(timestamp_mode),
-            silence_ranges=silence_ranges,
-            raw_audio_path=raw_audio_path
-        )
+        try:
+            result = await transcriber.transcribe_audio(
+                audio_path=audio_path,
+                language=options.language,
+                with_timestamps=options.with_timestamps,
+                temperature=options.temperature,
+                progress_callback=update_progress,
+                timestamp_mode=timestamp_mode.value if hasattr(timestamp_mode, 'value') else str(timestamp_mode),
+                silence_ranges=silence_ranges,
+                raw_audio_path=raw_audio_path
+            )
+        finally:
+            # 卸载模型释放内存（任务被取消或超时中断时也必须执行，避免显存泄漏）
+            await transcriber.unload_model()
 
         if progress_callback:
             progress_callback(task_id, 95, "转录完成")
-
-        # 卸载模型释放内存
-        await transcriber.unload_model()
 
         # 段落格式化 — 仅文本模式和旧版模式需要
         mode = getattr(options, 'transcription_mode', TranscriptionMode.LEGACY)

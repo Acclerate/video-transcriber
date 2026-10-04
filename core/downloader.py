@@ -238,6 +238,16 @@ class AudioExtractor:
         Returns:
             str: 优化后的音频文件路径
         """
+        # pydub 处理是同步重负载，放入线程池执行，避免阻塞事件循环
+        return await asyncio.to_thread(
+            self._optimize_audio_for_transcription_sync, audio_path, progress_callback
+        )
+
+    def _optimize_audio_for_transcription_sync(
+        self,
+        audio_path: str,
+        progress_callback: Optional[Callable[[float], None]] = None
+    ) -> str:
         try:
             logger.info(f"开始优化音频: {audio_path}")
 
@@ -247,8 +257,10 @@ class AudioExtractor:
             if progress_callback:
                 progress_callback(20)
 
-            # 加载音频
-            audio = AudioSegment.from_file(audio_path)
+            # 加载音频：解码阶段直接降为 16kHz 单声道，长音频可显著降低内存占用
+            audio = AudioSegment.from_file(
+                audio_path, parameters=["-ar", "16000", "-ac", "1"]
+            )
 
             if progress_callback:
                 progress_callback(40)
@@ -307,7 +319,11 @@ class AudioExtractor:
         try:
             from pydub.silence import detect_nonsilent
 
-            audio = AudioSegment.from_file(audio_path)
+            # 解码阶段直接降为 16kHz 单声道：静音检测无需原始采样率，
+            # 长音频的全量加载内存占用可降低约 10 倍
+            audio = AudioSegment.from_file(
+                audio_path, parameters=["-ar", "16000", "-ac", "1"]
+            )
             total_ms = len(audio)
 
             # detect_nonsilent 返回语音区间 [(start_ms, end_ms), ...]

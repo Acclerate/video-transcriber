@@ -8,12 +8,10 @@ import os
 import re
 import time
 import asyncio
-import threading
 from pathlib import Path
 from typing import Optional, Dict, Any, List, Callable, Tuple
 
 import torch
-import numpy as np
 from loguru import logger
 
 try:
@@ -151,10 +149,10 @@ class SenseVoiceTranscriber:
         self.device = self._determine_device(device)
         logger.info(f"SenseVoice 使用设备: {self.device}")
 
-        # 模型实例和加载锁
+        # 模型实例和加载锁（异步锁：load_model 在 await 期间不能阻塞事件循环）
         self.model = None
         self.punctuation_model = None
-        self.model_lock = threading.Lock()
+        self.model_lock = asyncio.Lock()
         self._model_loaded = False
         self._punctuation_loaded = False
 
@@ -242,7 +240,6 @@ class SenseVoiceTranscriber:
         # 设置 ModelScope 缓存目录环境变量
         os.environ['MODELSCOPE_CACHE'] = self.model_cache_dir
         # 确保缓存目录存在
-        from pathlib import Path
         Path(self.model_cache_dir).mkdir(parents=True, exist_ok=True)
 
         start_time = time.time()
@@ -347,10 +344,12 @@ class SenseVoiceTranscriber:
             if progress_callback:
                 progress_callback(10)
 
-            # 设置停顿位置（用于字幕切分优化）
+            # 设置停顿位置（用于字幕切分优化）；本次未传入时必须清空，避免残留上一次任务的区间
             if silence_ranges:
                 self.silence_ranges = silence_ranges
                 logger.info(f"已设置 {len(silence_ranges)} 个停顿位置用于字幕切分")
+            else:
+                self.silence_ranges = []
 
             # 准备语言参数
             lang = self._map_language(language)
@@ -645,7 +644,6 @@ class SenseVoiceTranscriber:
                 raise Exception("模型未加载，请先调用load_model()")
 
             # 验证音频文件
-            import os
             if not os.path.exists(audio_path):
                 raise Exception(f"音频文件不存在: {audio_path}")
 
@@ -983,14 +981,14 @@ class SenseVoiceTranscriber:
 
                     text += sentence
 
-                    # 获取时间戳
-                    start_time = 0.0
-                    end_time = 0.0
+                    # 获取时间戳（局部变量不得与外层计时器 start_time 同名）
+                    seg_start_time = 0.0
+                    seg_end_time = 0.0
                     timestamp = first_result.get("timestamp", [])
                     if len(timestamp) >= 2:
                         try:
-                            start_time = float(timestamp[0]) / 1000.0
-                            end_time = float(timestamp[1]) / 1000.0
+                            seg_start_time = float(timestamp[0]) / 1000.0
+                            seg_end_time = float(timestamp[1]) / 1000.0
                         except (ValueError, TypeError):
                             pass
 
@@ -1000,12 +998,12 @@ class SenseVoiceTranscriber:
                         detected_lang = item_lang
 
                     # 确保end_time大于start_time（验证要求）
-                    if end_time <= start_time:
-                        end_time = start_time + 0.001
+                    if seg_end_time <= seg_start_time:
+                        seg_end_time = seg_start_time + 0.001
 
                     segments.append(TranscriptionSegment(
-                        start_time=start_time,
-                        end_time=end_time,
+                        start_time=seg_start_time,
+                        end_time=seg_end_time,
                         text=sentence.strip(),
                         confidence=0.95
                     ))
@@ -1051,20 +1049,20 @@ class SenseVoiceTranscriber:
 
                                     text += sentence
 
-                                    # 获取时间戳
-                                    start_time = 0.0
-                                    end_time = 0.0
+                                    # 获取时间戳（局部变量不得与外层计时器 start_time 同名）
+                                    seg_start_time = 0.0
+                                    seg_end_time = 0.0
                                     timestamp = item.get("timestamp", [])
                                     if len(timestamp) >= 2:
                                         try:
-                                            start_time = float(timestamp[0]) / 1000.0
-                                            end_time = float(timestamp[1]) / 1000.0
+                                            seg_start_time = float(timestamp[0]) / 1000.0
+                                            seg_end_time = float(timestamp[1]) / 1000.0
                                         except (ValueError, TypeError):
                                             pass
 
                                     # 确保 end_time >= start_time
-                                    if end_time < start_time:
-                                        end_time = start_time + 0.001
+                                    if seg_end_time < seg_start_time:
+                                        seg_end_time = seg_start_time + 0.001
 
                                     # 获取语言
                                     item_lang = item.get("language", detected_lang)
@@ -1072,8 +1070,8 @@ class SenseVoiceTranscriber:
                                         detected_lang = item_lang
 
                                     segments.append(TranscriptionSegment(
-                                        start_time=start_time,
-                                        end_time=end_time,
+                                        start_time=seg_start_time,
+                                        end_time=seg_end_time,
                                         text=sentence.strip(),
                                         confidence=0.95
                                     ))
@@ -3726,7 +3724,7 @@ class SenseVoiceTranscriber:
 
     async def unload_model(self) -> None:
         """卸载模型以释放内存"""
-        with self.model_lock:
+        async with self.model_lock:
             if self.model is not None:
                 del self.model
                 self.model = None
